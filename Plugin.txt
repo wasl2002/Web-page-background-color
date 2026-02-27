@@ -505,8 +505,48 @@ function injectStyle() {
     const btnLeft = savedPosition.left || '';
     const btnRight = savedPosition.right || '10px';
 
+   // 智能处理保存的位置
+    let btnStyle = 'position: fixed; z-index: 999998; background: #C7EDCC; padding: 8px 12px; border-radius: 20px; cursor: move; box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-family: Arial, sans-serif; font-size: 12px; user-select: none;';
+
+    if (savedPosition.top && savedPosition.snappedEdge) {
+        // 有保存的位置，验证是否在可视范围内
+        const top = parseInt(savedPosition.top);
+        const viewportHeight = window.innerHeight;
+        const viewportWidth = window.innerWidth;
+
+        // 确保 top 在可视范围内
+        const safeTop = Math.max(10, Math.min(top, viewportHeight - 50));
+
+        if (savedPosition.snappedEdge === 'left') {
+            const left = parseInt(savedPosition.left) || 10;
+            const safeLeft = Math.max(10, Math.min(left, viewportWidth - 100));
+            btnStyle += ` top: ${safeTop}px; left: ${safeLeft}px; right: auto;`;
+        } else if (savedPosition.snappedEdge === 'right') {
+            btnStyle += ` top: ${safeTop}px; right: 10px; left: auto;`;
+        } else {
+            // 默认右上角
+            btnStyle += ' top: 10px; right: 10px; left: auto;';
+        }
+
+        console.log('[豆沙绿] 恢复按钮位置:', savedPosition.snappedEdge, safeTop);
+    } else if (savedPosition.top && savedPosition.left) {
+        // 兼容旧版本的位置数据
+        const top = parseInt(savedPosition.top);
+        const left = parseInt(savedPosition.left);
+        const viewportHeight = window.innerHeight;
+        const viewportWidth = window.innerWidth;
+
+        const safeTop = Math.max(10, Math.min(top, viewportHeight - 50));
+        const safeLeft = Math.max(10, Math.min(left, viewportWidth - 100));
+
+        btnStyle += ` top: ${safeTop}px; left: ${safeLeft}px; right: auto;`;
+    } else {
+        // 默认右上角
+        btnStyle += ' top: 10px; right: 10px; left: auto;';
+    }
+
     quickBtn.innerHTML = `
-        <div class="${CLASS_PANEL}" id="bean-green-quick-btn-inner" style="position: fixed; top: ${btnTop}; ${btnLeft ? 'left: ' + btnLeft + ';' : 'right: ' + btnRight + ';'} z-index: 999998; background: #C7EDCC; padding: 8px 12px; border-radius: 20px; cursor: move; box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-family: Arial, sans-serif; font-size: 12px; user-select: none;">
+        <div class="${CLASS_PANEL}" id="bean-green-quick-btn-inner" style="${btnStyle}">
             🌿 豆沙绿
         </div>
     `;
@@ -608,10 +648,118 @@ document.getElementById('btn-reset-color').addEventListener('click', () => {
     }
 
   // 新增：按钮拖拽函数（可保存位置）
+// 按钮拖拽函数（可保存位置 + 自动吸附边缘）
 function makeQuickBtnDraggable(element) {
     let isDragging = false;
     let startX, startY, startLeft, startTop;
     let hasMoved = false;
+
+    // 吸附到最近的边缘
+    function snapToEdge() {
+        const rect = element.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+
+        // 计算到四个边缘的距离
+        const distances = {
+            top: centerY,
+            bottom: viewportHeight - centerY,
+            left: centerX,
+            right: viewportWidth - centerX
+        };
+
+        // 找到最近的边缘
+        let minDistance = Infinity;
+        let nearestEdge = 'right';
+
+        for (const [edge, distance] of Object.entries(distances)) {
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearestEdge = edge;
+            }
+        }
+
+        // 动画过渡到边缘
+        element.style.transition = 'all 0.3s ease';
+
+        const margin = 10; // 距离边缘的边距
+
+        switch(nearestEdge) {
+            case 'top':
+                element.style.top = margin + 'px';
+                element.style.left = centerX - rect.width / 2 + 'px';
+                element.style.right = 'auto';
+                break;
+            case 'bottom':
+                element.style.top = viewportHeight - rect.height - margin + 'px';
+                element.style.left = centerX - rect.width / 2 + 'px';
+                element.style.right = 'auto';
+                break;
+            case 'left':
+                element.style.left = margin + 'px';
+                element.style.top = centerY - rect.height / 2 + 'px';
+                element.style.right = 'auto';
+                break;
+            case 'right':
+                element.style.right = margin + 'px';
+                element.style.left = 'auto';
+                element.style.top = centerY - rect.height / 2 + 'px';
+                break;
+        }
+
+        // 移除过渡效果
+        setTimeout(() => {
+            element.style.transition = '';
+        }, 300);
+
+        return nearestEdge;
+    }
+
+    // 确保按钮在可视范围内
+    function ensureInView() {
+        const rect = element.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+
+        let needsAdjustment = false;
+        let newTop = rect.top;
+        let newLeft = rect.left;
+
+        // 检查是否超出边界
+        if (rect.top < 10) {
+            newTop = 10;
+            needsAdjustment = true;
+        }
+        if (rect.bottom > viewportHeight - 10) {
+            newTop = viewportHeight - rect.height - 10;
+            needsAdjustment = true;
+        }
+        if (rect.left < 10) {
+            newLeft = 10;
+            needsAdjustment = true;
+        }
+        if (rect.right > viewportWidth - 10) {
+            newLeft = viewportWidth - rect.width - 10;
+            needsAdjustment = true;
+        }
+
+        if (needsAdjustment) {
+            element.style.top = newTop + 'px';
+            element.style.left = newLeft + 'px';
+            element.style.right = 'auto';
+
+            // 保存新位置
+            const position = {
+                top: element.style.top,
+                left: element.style.left,
+                right: element.style.right
+            };
+            localStorage.setItem(BTN_POSITION_KEY, JSON.stringify(position));
+        }
+    }
 
     element.addEventListener('mousedown', (e) => {
         isDragging = true;
@@ -624,6 +772,7 @@ function makeQuickBtnDraggable(element) {
         startTop = rect.top;
 
         element.style.cursor = 'grabbing';
+        element.style.transition = ''; // 移除过渡，跟随鼠标更流畅
         e.preventDefault();
     });
 
@@ -640,32 +789,41 @@ function makeQuickBtnDraggable(element) {
         }
 
         if (hasMoved) {
-            const newLeft = startLeft + deltaX;
-            const newTop = startTop + deltaY;
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+
+            let newLeft = startLeft + deltaX;
+            let newTop = startTop + deltaY;
 
             // 限制在屏幕范围内
-            const maxLeft = window.innerWidth - element.offsetWidth;
-            const maxTop = window.innerHeight - element.offsetHeight;
+            const maxLeft = viewportWidth - element.offsetWidth;
+            const maxTop = viewportHeight - element.offsetHeight;
 
-            const finalLeft = Math.max(0, Math.min(newLeft, maxLeft));
-            const finalTop = Math.max(0, Math.min(newTop, maxTop));
+            newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+            newTop = Math.max(0, Math.min(newTop, maxTop));
 
-            element.style.left = finalLeft + 'px';
-            element.style.top = finalTop + 'px';
+            element.style.left = newLeft + 'px';
+            element.style.top = newTop + 'px';
             element.style.right = 'auto';
         }
     });
 
     document.addEventListener('mouseup', () => {
         if (isDragging && hasMoved) {
-            // 保存位置
-            const position = {
-                top: element.style.top,
-                left: element.style.left,
-                right: element.style.right
-            };
-            localStorage.setItem(BTN_POSITION_KEY, JSON.stringify(position));
-            console.log('[豆沙绿] 按钮位置已保存');
+            // 吸附到最近的边缘
+            const snappedEdge = snapToEdge();
+
+            // 等待动画完成后保存位置
+            setTimeout(() => {
+                const position = {
+                    top: element.style.top,
+                    left: element.style.left,
+                    right: element.style.right,
+                    snappedEdge: snappedEdge
+                };
+                localStorage.setItem(BTN_POSITION_KEY, JSON.stringify(position));
+                console.log('[豆沙绿] 按钮位置已保存，吸附到:', snappedEdge, '边缘');
+            }, 350);
         }
 
         isDragging = false;
@@ -675,6 +833,19 @@ function makeQuickBtnDraggable(element) {
         setTimeout(() => {
             element.dataset.dragging = 'false';
         }, 10);
+    });
+
+    // 页面加载时检查位置
+    setTimeout(ensureInView, 100);
+
+    // 窗口大小改变时调整位置
+    window.addEventListener('resize', () => {
+        ensureInView();
+    });
+
+    // 页面滚动时检查位置（可选）
+    window.addEventListener('scroll', () => {
+        // 按钮是 fixed 定位，不需要调整
     });
 }
 
