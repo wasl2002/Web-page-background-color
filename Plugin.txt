@@ -317,6 +317,7 @@
     }
 
     // 注入CSS样式
+// 注入CSS样式
 function injectStyle() {
     const oldStyle = document.getElementById('bean-green-style');
     if (oldStyle) {
@@ -330,20 +331,26 @@ function injectStyle() {
     const bgColor = localStorage.getItem('bean_green_color') || BEAN_GREEN;
 
     style.textContent = `
+        /* 优先恢复控制面板内部的背景 */
+        .bean-green-panel,
+        .bean-green-panel * {
+           /* background-color: initial !important;*/
+        }
+
         /* 豆沙绿背景 - 排除控制面板和已标记的元素 */
-        div:not(.${CLASS_PANEL}):not(.${CLASS_EXCLUDED}):not(.${CLASS_EXCLUDE_CHILDREN}),
-        header:not(.${CLASS_PANEL}):not(.${CLASS_EXCLUDED}):not(.${CLASS_EXCLUDE_CHILDREN}) {
-            background-color: ${bgColor} !important;
+        div:not(.bean-green-panel):not(.bean-green-excluded):not(.bean-green-exclude-children),
+        header:not(.bean-green-panel):not(.bean-green-excluded):not(.bean-green-exclude-children) {
+            background-color: ${bgColor} ;
         }
 
         /* 排除子元素的所有后代 */
-        .${CLASS_EXCLUDE_CHILDREN} div,
-        .${CLASS_EXCLUDE_CHILDREN} header {
+        .bean-green-exclude-children div,
+        .bean-green-exclude-children header {
             background-color: initial !important;
         }
 
         /* 确保排除元素本身也不应用 */
-        .${CLASS_EXCLUDED} {
+        .bean-green-excluded {
             background-color: initial !important;
         }
     `;
@@ -437,7 +444,7 @@ function injectStyle() {
     panel.className = CLASS_PANEL;
 
     panel.innerHTML = `
-        <div class="${CLASS_PANEL}" id="bean-green-panel-content" style="position: fixed; top: 10px; right: 10px; z-index: 999999; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); font-family: Arial, sans-serif; min-width: 320px; max-width: 400px; max-height: 80vh; overflow-y: auto; display: none;">
+        <div class="${CLASS_PANEL} bean-green-exclude-children" id="bean-green-panel-content" style="position: fixed; top: 10px; right: 10px; z-index: 999999; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); font-family: Arial, sans-serif; min-width: 320px; max-width: 400px; max-height: 80vh; overflow-y: auto; display: none;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #C7EDCC; padding-bottom: 10px;">
                 <h3 style="margin: 0; font-size: 16px; color: #333;">🌿 豆沙绿控制面板</h3>
                 <button id="btn-close-panel" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #999;">✖</button>
@@ -449,7 +456,7 @@ function injectStyle() {
 
             <div style="margin-bottom: 15px;">
                 <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #333;">📦 元素排除规则</div>
-                <button id="btn-add-rule" style="width: 100%; padding: 10px; cursor: pointer; border: 1px solid #C7EDCC; background: #C7EDCC; border-radius: 6px; font-weight: bold; color: #333;">➕ 添加新规则</button>
+                <button id="btn-add-rule" style="width: 100%; padding: 10px; cursor: pointer; border: 1px solid #C7EDCC; background: white; border-radius: 6px; font-weight: bold; color: #333;">➕ 添加新规则</button>
                 <button id="btn-manage-rules" style="width: 100%; padding: 10px; margin-top: 5px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">📋 管理规则</button>
             </div>
 
@@ -477,7 +484,7 @@ function injectStyle() {
         <input type="range" id="opacity-slider" min="0" max="100" value="80" style="flex: 1;">
         <span id="opacity-value" style="font-size: 11px; color: #666; min-width: 35px;">80%</span>
     </div>
-    <button id="btn-apply-color" style="width: 100%; padding: 10px; cursor: pointer; border: 1px solid #C7EDCC; background: #C7EDCC; border-radius: 6px; font-weight: bold; color: #333;">✅ 应用颜色</button>
+    <button id="btn-apply-color" style="width: 100%; padding: 10px; cursor: pointer; border: 1px solid #C7EDCC; background: white; border-radius: 6px; font-weight: bold; color: #333;">✅ 应用颜色</button>
     <button id="btn-reset-color" style="width: 100%; padding: 10px; margin-top: 5px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">🔄 恢复默认</button>
 </div>
             <div style="margin-bottom: 15px;">
