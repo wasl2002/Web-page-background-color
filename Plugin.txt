@@ -1,0 +1,1050 @@
+// ==UserScript==
+// @name         豆沙绿背景 - 护眼浏览器背景色
+// @namespace    https://greasyfork.org/zh-CN/users/was-2026
+// @version      3.5
+// @description  将网页所有div背景设置为豆沙绿护眼色，支持自定义排除规则、网站黑名单、拖拽按钮等功能，极致性能优化
+// @author       你的名字
+// @match        *://*/*
+// @grant        none
+// @run-at       document-start
+// @license      MIT
+// @supportURL   https://github.com/你的用户名/你的仓库/issues
+// @homepageURL  https://github.com/你的用户名/你的仓库
+// @exclude      *://youtube.com/*
+// @exclude      *://bilibili.com/*
+// @exclude      *://1*/*
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // ==================== 网站黑名单配置 ====================
+
+    const WEBSITE_BLACKLIST = [
+        'localhost',
+        '127.0.0.1',
+        'github.com',
+        'docs.google.com',
+        {
+            pattern: /.*\.google\.com$/,
+            reason: 'Google所有子域名'
+        }
+    ];
+
+    function isWebsiteBlacklisted() {
+        const currentHost = window.location.hostname;
+
+        for (const item of WEBSITE_BLACKLIST) {
+            if (typeof item === 'string') {
+                if (currentHost.includes(item) || item.includes(currentHost)) {
+                    return true;
+                }
+            } else if (item.pattern && item.pattern instanceof RegExp) {
+                if (item.pattern.test(currentHost)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    if (isWebsiteBlacklisted()) {
+        console.log('[豆沙绿] 当前网站在黑名单中，脚本不执行');
+        return;
+    }
+
+    // ==================== 配置区域 ====================
+
+    const BEAN_GREEN = 'rgba(199, 237, 204, 0.8)';
+    const STORAGE_KEY = 'bean_green_exclusion_rules';
+    const WEBSITE_BLACKLIST_STORAGE_KEY = 'bean_green_website_blacklist';
+
+    const CLASS_EXCLUDED = 'bean-green-excluded';
+    const CLASS_EXCLUDE_CHILDREN = 'bean-green-exclude-children';
+    const CLASS_PANEL = 'bean-green-panel';
+
+    const BTN_POSITION_KEY = 'bean_green_btn_position'; // 新增：按钮位置存储key
+    const COLOR_STORAGE_KEY = 'bean_green_color'; // 新增：颜色存储key
+    const DEFAULT_EXCLUSION_RULES = [
+        {
+            selector: 'video, .video-player, [class*="player"]',
+            excludeChildren: true,
+            reason: '视频播放器（含子元素）'
+        },
+        {
+            selector: 'nav, header, [role="navigation"]',
+            excludeChildren: true,
+            reason: '导航栏（含子元素）'
+        },
+        {
+            className: 'modal dialog popup overlay',
+            excludeChildren: true,
+            reason: '模态框（含子元素）'
+        },
+        {
+            selector: 'aside, .sidebar, [class*="sidebar"]',
+            excludeChildren: true,
+            reason: '侧边栏（含子元素）'
+        },
+        {
+            selector: 'footer, .footer',
+            excludeChildren: true,
+            reason: '页脚（含子元素）'
+        },
+        {
+            id: 'bean-green-panel-content',
+            excludeChildren: true,
+            reason: '组件弹出框'
+        },
+        {
+            className: 'bean-green-panel',
+            excludeChildren: true,
+            reason: '组件弹出框'
+        },
+        {
+            selector: '[class*="ad-"], [class*="advertisement"], [id*="ad-"]',
+            excludeChildren: true,
+            reason: '广告区域（含子元素）'
+        },
+        {
+            selector: 'input, textarea, [contenteditable="true"]',
+            excludeChildren: false,
+            reason: '输入框'
+        },
+        {
+            position: {
+                type: 'fixed',
+                zIndex: '>=1000'
+            },
+            excludeChildren: true,
+            reason: '固定定位的高层级元素（含子元素）'
+        }
+    ];
+
+    let exclusionRules = [];
+    let customWebsiteBlacklist = [];
+    let applyTimeout = null;
+
+    // ==================== 存储功能 ====================
+
+    function loadCustomRules() {
+        try {
+            const savedRules = localStorage.getItem(STORAGE_KEY);
+            const customRules = savedRules ? JSON.parse(savedRules) : [];
+            exclusionRules = [...DEFAULT_EXCLUSION_RULES, ...customRules];
+            console.log('[豆沙绿] 已加载排除规则:', exclusionRules.length, '条');
+        } catch (e) {
+            console.warn('[豆沙绿] 加载自定义规则失败', e);
+            exclusionRules = [...DEFAULT_EXCLUSION_RULES];
+        }
+    }
+
+    function saveCustomRules(rules) {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(rules));
+            loadCustomRules();
+        } catch (e) {
+            console.error('[豆沙绿] 保存规则失败', e);
+        }
+    }
+
+    function loadCustomWebsiteBlacklist() {
+        try {
+            const saved = localStorage.getItem(WEBSITE_BLACKLIST_STORAGE_KEY);
+            customWebsiteBlacklist = saved ? JSON.parse(saved) : [];
+        } catch (e) {
+            customWebsiteBlacklist = [];
+        }
+    }
+
+    function saveCustomWebsiteBlacklist(list) {
+        try {
+            localStorage.setItem(WEBSITE_BLACKLIST_STORAGE_KEY, JSON.stringify(list));
+            customWebsiteBlacklist = list;
+        } catch (e) {
+            console.error('[豆沙绿] 保存网站黑名单失败', e);
+        }
+    }
+
+    // ==================== 核心功能 ====================
+
+    function checkRule(div, rule, currentHost) {
+        if (rule.website && !currentHost.includes(rule.website)) {
+            return false;
+        }
+
+        if (rule.selector) {
+            try {
+                if (div.matches(rule.selector)) {
+                    return true;
+                }
+            } catch (e) {}
+        }
+
+        if (rule.id && div.id === rule.id) {
+            return true;
+        }
+
+        if (rule.className || rule.class) {
+            const classNames = rule.className || rule.class;
+            const classes = classNames.split(/\s+/);
+            for (const cls of classes) {
+                if (div.classList.contains(cls)) {
+                    return true;
+                }
+            }
+        }
+
+        if (rule.dataAttrs) {
+            for (const [key, value] of Object.entries(rule.dataAttrs)) {
+                if (div.getAttribute(key) === value) {
+                    return true;
+                }
+            }
+        }
+
+        if (rule.position) {
+            const style = window.getComputedStyle(div);
+            const position = style.position;
+            const zIndex = parseInt(style.zIndex) || 0;
+
+            if (rule.position.type && position === rule.position.type) {
+                if (rule.position.zIndex) {
+                    if (compareValue(zIndex, rule.position.zIndex)) {
+                        return true;
+                    }
+                } else {
+                    return true;
+                }
+            }
+        }
+
+        if (rule.size) {
+            const rect = div.getBoundingClientRect();
+
+            if (rule.size.width && compareValue(rect.width, rule.size.width)) {
+                return true;
+            }
+            if (rule.size.height && compareValue(rect.height, rule.size.height)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    function compareValue(actual, condition) {
+        const operators = ['>=', '<=', '>', '<', '='];
+
+        for (const op of operators) {
+            if (condition.startsWith(op)) {
+                const target = parseFloat(condition.substring(op.length));
+                switch(op) {
+                    case '>=': return actual >= target;
+                    case '<=': return actual <= target;
+                    case '>': return actual > target;
+                    case '<': return actual < target;
+                    case '=': return actual === target;
+                }
+            }
+        }
+
+        return actual === parseFloat(condition);
+    }
+
+    // 应用豆沙绿背景（带防抖）
+    function applyBeanGreen() {
+        if (applyTimeout) {
+            clearTimeout(applyTimeout);
+        }
+
+        applyTimeout = setTimeout(applyBeanGreenNow, 200);
+    }
+
+    // 立即应用
+    function applyBeanGreenNow() {
+        const currentHost = window.location.hostname;
+        const divs = document.querySelectorAll('div, header');
+
+        let excludedCount = 0;
+        let appliedCount = 0;
+
+        for (const div of divs) {
+            // 跳过控制面板
+            if (div.closest(`.${CLASS_PANEL}`)) {
+                continue;
+            }
+
+            // 检查是否在需要排除子元素的父元素内部
+            if (div.closest(`.${CLASS_EXCLUDE_CHILDREN}`)) {
+                if (!div.classList.contains(CLASS_EXCLUDED)) {
+                    div.classList.add(CLASS_EXCLUDED);
+                }
+                excludedCount++;
+                continue;
+            }
+
+            // 检查是否匹配排除规则
+            let isExcluded = false;
+            let matchedRule = null;
+
+            for (const rule of exclusionRules) {
+                if (checkRule(div, rule, currentHost)) {
+                    isExcluded = true;
+                    matchedRule = rule;
+                    break;
+                }
+            }
+
+            if (isExcluded) {
+                if (!div.classList.contains(CLASS_EXCLUDED)) {
+                    div.classList.add(CLASS_EXCLUDED);
+                }
+                excludedCount++;
+
+                if (matchedRule && matchedRule.excludeChildren === true) {
+                    if (!div.classList.contains(CLASS_EXCLUDE_CHILDREN)) {
+                        div.classList.add(CLASS_EXCLUDE_CHILDREN);
+                    }
+                }
+            } else {
+                appliedCount++;
+            }
+        }
+
+        console.log(`[豆沙绿] 已应用: ${appliedCount}, 已排除: ${excludedCount}`);
+    }
+
+    // 注入CSS样式
+function injectStyle() {
+    const oldStyle = document.getElementById('bean-green-style');
+    if (oldStyle) {
+        oldStyle.remove();
+    }
+
+    const style = document.createElement('style');
+    style.id = 'bean-green-style';
+
+    // 获取用户自定义颜色，如果没有则使用默认豆沙绿
+    const bgColor = localStorage.getItem('bean_green_color') || BEAN_GREEN;
+
+    style.textContent = `
+        /* 豆沙绿背景 - 排除控制面板和已标记的元素 */
+        div:not(.${CLASS_PANEL}):not(.${CLASS_EXCLUDED}):not(.${CLASS_EXCLUDE_CHILDREN}),
+        header:not(.${CLASS_PANEL}):not(.${CLASS_EXCLUDED}):not(.${CLASS_EXCLUDE_CHILDREN}) {
+            background-color: ${bgColor} !important;
+        }
+
+        /* 排除子元素的所有后代 */
+        .${CLASS_EXCLUDE_CHILDREN} div,
+        .${CLASS_EXCLUDE_CHILDREN} header {
+            background-color: initial !important;
+        }
+
+        /* 确保排除元素本身也不应用 */
+        .${CLASS_EXCLUDED} {
+            background-color: initial !important;
+        }
+    `;
+
+    if (document.head) {
+        document.head.appendChild(style);
+    } else if (document.documentElement) {
+        document.documentElement.appendChild(style);
+    } else {
+        document.addEventListener('DOMContentLoaded', () => {
+            (document.head || document.documentElement).appendChild(style);
+        });
+    }
+}
+
+    // 监听DOM变化（超轻量版 - 只监听新增节点）
+    function observeDOM() {
+        const observer = new MutationObserver((mutations) => {
+            // 只在有新增节点时触发
+            let hasNewNodes = false;
+
+            for (const mutation of mutations) {
+                if (mutation.addedNodes.length > 0) {
+                    // 检查新增的节点是否包含div
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeType === Node.ELEMENT_NODE) {
+                            // 跳过控制面板
+                            if (node.classList && node.classList.contains(CLASS_PANEL)) {
+                                continue;
+                            }
+
+                            // 检查是否是div或包含div
+                            if (node.tagName === 'DIV' || node.tagName === 'HEADER' ||  (node.querySelector && (node.querySelector('div') || node.querySelector('header')))) {
+                              hasNewNodes = true;
+                              break;
+}
+                        }
+                    }
+                }
+
+                if (hasNewNodes) break;
+            }
+
+            if (hasNewNodes) {
+                applyBeanGreen();
+            }
+        });
+
+        // 只监听子节点变化，不监听属性
+        const config = {
+            childList: true,
+            subtree: true
+            // 注意：没有 attributes: true，完全不监听属性变化
+        };
+
+        if (document.body) {
+            observer.observe(document.body, config);
+        } else {
+            document.addEventListener('DOMContentLoaded', () => {
+                observer.observe(document.body, config);
+            });
+        }
+    }
+
+    // ==================== 用户界面 ====================
+  function applyCustomColor(color) {
+    try {
+        localStorage.setItem(COLOR_STORAGE_KEY, color);
+
+        // 更新预览
+        const preview = document.getElementById('current-color-preview');
+        const text = document.getElementById('current-color-text');
+        if (preview) preview.style.background = color;
+        if (text) text.textContent = color;
+
+        // 重新注入CSS
+        injectStyle();
+
+        alert('✅ 颜色已应用！');
+    } catch (e) {
+        alert('❌ 颜色应用失败！');
+        console.error(e);
+    }
+}
+
+  function createControlPanel() {
+    // 读取保存的按钮位置
+    const savedPosition = JSON.parse(localStorage.getItem(BTN_POSITION_KEY) || '{}');
+
+    const panel = document.createElement('div');
+    panel.className = CLASS_PANEL;
+
+    panel.innerHTML = `
+        <div class="${CLASS_PANEL}" id="bean-green-panel-content" style="position: fixed; top: 10px; right: 10px; z-index: 999999; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); font-family: Arial, sans-serif; min-width: 320px; max-width: 400px; max-height: 80vh; overflow-y: auto; display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #C7EDCC; padding-bottom: 10px;">
+                <h3 style="margin: 0; font-size: 16px; color: #333;">🌿 豆沙绿控制面板</h3>
+                <button id="btn-close-panel" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #999;">✖</button>
+            </div>
+
+            <div style="background: #f8f9fa; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 12px; color: #666;">
+                <div>当前网站: <strong style="color: #333;">${window.location.hostname}</strong></div>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #333;">📦 元素排除规则</div>
+                <button id="btn-add-rule" style="width: 100%; padding: 10px; cursor: pointer; border: 1px solid #C7EDCC; background: #C7EDCC; border-radius: 6px; font-weight: bold; color: #333;">➕ 添加新规则</button>
+                <button id="btn-manage-rules" style="width: 100%; padding: 10px; margin-top: 5px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">📋 管理规则</button>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #333;">🌐 网站黑名单</div>
+                <button id="btn-add-website" style="width: 100%; padding: 10px; cursor: pointer; border: 1px solid #fff3cd; background: #fff3cd; border-radius: 6px; font-weight: bold; color: #856404;">🚫 排除当前网站</button>
+                <button id="btn-manage-websites" style="width: 100%; padding: 10px; margin-top: 5px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">📋 管理黑名单</button>
+            </div>
+            <div style="margin-bottom: 15px;">
+    <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #333;">🎨 背景颜色</div>
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+        <label style="font-size: 12px; color: #666;">当前颜色：</label>
+        <div id="current-color-preview" style="width: 30px; height: 30px; border-radius: 4px; border: 1px solid #ddd; background: ${localStorage.getItem(COLOR_STORAGE_KEY) || BEAN_GREEN};"></div>
+        <span id="current-color-text" style="font-size: 11px; color: #666; font-family: monospace;">${localStorage.getItem(COLOR_STORAGE_KEY) || BEAN_GREEN}</span>
+    </div>
+    <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px;">
+        <button class="btn-preset-color" data-color="rgba(199, 237, 204, 0.8)" style="flex: 1; min-width: 60px; padding: 8px; cursor: pointer; border: 2px solid #ddd; background: rgba(199, 237, 204, 0.8); border-radius: 6px; font-size: 11px;">豆沙绿</button>
+        <button class="btn-preset-color" data-color="rgba(200, 200, 200, 0.8)" style="flex: 1; min-width: 60px; padding: 8px; cursor: pointer; border: 2px solid #ddd; background: rgba(200, 200, 200, 0.8); border-radius: 6px; font-size: 11px;">浅灰</button>
+        <button class="btn-preset-color" data-color="rgba(255, 245, 220, 0.8)" style="flex: 1; min-width: 60px; padding: 8px; cursor: pointer; border: 2px solid #ddd; background: rgba(255, 245, 220, 0.8); border-radius: 6px; font-size: 11px;">米黄</button>
+        <button class="btn-preset-color" data-color="rgba(230, 240, 255, 0.8)" style="flex: 1; min-width: 60px; padding: 8px; cursor: pointer; border: 2px solid #ddd; background: rgba(230, 240, 255, 0.8); border-radius: 6px; font-size: 11px;">浅蓝</button>
+    </div>
+    <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+        <label style="font-size: 12px; color: #666; white-space: nowrap;">自定义：</label>
+        <input type="color" id="color-picker" value="#c7edcc" style="flex: 1; height: 35px; cursor: pointer; border: 1px solid #ddd; border-radius: 6px;">
+        <input type="range" id="opacity-slider" min="0" max="100" value="80" style="flex: 1;">
+        <span id="opacity-value" style="font-size: 11px; color: #666; min-width: 35px;">80%</span>
+    </div>
+    <button id="btn-apply-color" style="width: 100%; padding: 10px; cursor: pointer; border: 1px solid #C7EDCC; background: #C7EDCC; border-radius: 6px; font-weight: bold; color: #333;">✅ 应用颜色</button>
+    <button id="btn-reset-color" style="width: 100%; padding: 10px; margin-top: 5px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">🔄 恢复默认</button>
+</div>
+            <div style="margin-bottom: 15px;">
+                <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #333;">🔧 工具</div>
+                <button id="btn-toggle-debug" style="width: 100%; padding: 10px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">🔍 调试模式${debugMode ? '-已开启' : '-关闭'}</button>
+                <button id="btn-clear-all" style="width: 100%; padding: 10px; margin-top: 5px; cursor: pointer; border: 1px solid #ff6b6b; background: white; color: #ff6b6b; border-radius: 6px;">🗑️ 清空所有自定义数据</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(panel);
+
+    const quickBtn = document.createElement('div');
+    quickBtn.className = CLASS_PANEL;
+    quickBtn.id = 'bean-green-quick-btn';
+
+    // 使用保存的位置或默认位置
+    const btnTop = savedPosition.top || '10px';
+    const btnLeft = savedPosition.left || '';
+    const btnRight = savedPosition.right || '10px';
+
+    quickBtn.innerHTML = `
+        <div class="${CLASS_PANEL}" id="bean-green-quick-btn-inner" style="position: fixed; top: ${btnTop}; ${btnLeft ? 'left: ' + btnLeft + ';' : 'right: ' + btnRight + ';'} z-index: 999998; background: #C7EDCC; padding: 8px 12px; border-radius: 20px; cursor: move; box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-family: Arial, sans-serif; font-size: 12px; user-select: none;">
+            🌿 豆沙绿
+        </div>
+    `;
+    document.body.appendChild(quickBtn);
+
+    const panelDiv = document.getElementById('bean-green-panel-content');
+    const quickBtnDiv = document.getElementById('bean-green-quick-btn-inner');
+
+    // 点击打开面板
+    quickBtnDiv.addEventListener('click', (e) => {
+        // 如果是拖拽，不触发点击
+        if (quickBtnDiv.dataset.dragging === 'true') {
+            return;
+        }
+        panelDiv.style.display = panelDiv.style.display === 'none' ? 'block' : 'none';
+    });
+
+    document.getElementById('btn-close-panel').addEventListener('click', () => {
+        panelDiv.style.display = 'none';
+    });
+
+    document.getElementById('btn-add-rule').addEventListener('click', showAddRuleDialog);
+    document.getElementById('btn-manage-rules').addEventListener('click', showRulesManager);
+    document.getElementById('btn-add-website').addEventListener('click', addCurrentWebsiteToBlacklist);
+    document.getElementById('btn-manage-websites').addEventListener('click', showWebsiteBlacklistManager);
+    document.getElementById('btn-toggle-debug').addEventListener('click', toggleDebugMode);
+    document.getElementById('btn-clear-all').addEventListener('click', clearAllCustomData);
+
+    // 添加拖拽功能
+    makeQuickBtnDraggable(quickBtnDiv);
+    makeDraggable(panelDiv);
+
+
+    // 预设颜色按钮
+document.querySelectorAll('.btn-preset-color').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        const color = e.target.dataset.color;
+        applyCustomColor(color);
+    });
+});
+
+// 颜色选择器
+const colorPicker = document.getElementById('color-picker');
+const opacitySlider = document.getElementById('opacity-slider');
+const opacityValue = document.getElementById('opacity-value');
+
+opacitySlider.addEventListener('input', (e) => {
+    opacityValue.textContent = e.target.value + '%';
+});
+
+// 应用颜色按钮
+document.getElementById('btn-apply-color').addEventListener('click', () => {
+    const hexColor = colorPicker.value;
+    const opacity = parseInt(opacitySlider.value) / 100;
+
+    // 将 hex 转换为 rgba
+    const r = parseInt(hexColor.slice(1, 3), 16);
+    const g = parseInt(hexColor.slice(3, 5), 16);
+    const b = parseInt(hexColor.slice(5, 7), 16);
+    const rgbaColor = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+
+    applyCustomColor(rgbaColor);
+});
+
+// 恢复默认颜色
+document.getElementById('btn-reset-color').addEventListener('click', () => {
+    if (confirm('确定要恢复默认颜色吗？')) {
+        localStorage.removeItem(COLOR_STORAGE_KEY);
+        alert('✅ 已恢复默认颜色！刷新页面后生效。');
+        location.reload();
+    }
+});
+}
+
+    function makeDraggable(element) {
+        let isDragging = false;
+        let offsetX = 0;
+        let offsetY = 0;
+
+        element.addEventListener('mousedown', (e) => {
+            if (e.target.tagName === 'BUTTON') return;
+            isDragging = true;
+            offsetX = e.clientX - element.offsetLeft;
+            offsetY = e.clientY - element.offsetTop;
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                e.preventDefault();
+                element.style.left = (e.clientX - offsetX) + 'px';
+                element.style.top = (e.clientY - offsetY) + 'px';
+                element.style.right = 'auto';
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+    }
+
+  // 新增：按钮拖拽函数（可保存位置）
+function makeQuickBtnDraggable(element) {
+    let isDragging = false;
+    let startX, startY, startLeft, startTop;
+    let hasMoved = false;
+
+    element.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        hasMoved = false;
+
+        const rect = element.getBoundingClientRect();
+        startX = e.clientX;
+        startY = e.clientY;
+        startLeft = rect.left;
+        startTop = rect.top;
+
+        element.style.cursor = 'grabbing';
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+
+        const deltaX = e.clientX - startX;
+        const deltaY = e.clientY - startY;
+
+        // 如果移动超过3px，认为是拖拽
+        if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
+            hasMoved = true;
+            element.dataset.dragging = 'true';
+        }
+
+        if (hasMoved) {
+            const newLeft = startLeft + deltaX;
+            const newTop = startTop + deltaY;
+
+            // 限制在屏幕范围内
+            const maxLeft = window.innerWidth - element.offsetWidth;
+            const maxTop = window.innerHeight - element.offsetHeight;
+
+            const finalLeft = Math.max(0, Math.min(newLeft, maxLeft));
+            const finalTop = Math.max(0, Math.min(newTop, maxTop));
+
+            element.style.left = finalLeft + 'px';
+            element.style.top = finalTop + 'px';
+            element.style.right = 'auto';
+        }
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isDragging && hasMoved) {
+            // 保存位置
+            const position = {
+                top: element.style.top,
+                left: element.style.left,
+                right: element.style.right
+            };
+            localStorage.setItem(BTN_POSITION_KEY, JSON.stringify(position));
+            console.log('[豆沙绿] 按钮位置已保存');
+        }
+
+        isDragging = false;
+        element.style.cursor = 'move';
+
+        // 延迟重置拖拽标记，避免触发点击
+        setTimeout(() => {
+            element.dataset.dragging = 'false';
+        }, 10);
+    });
+}
+
+    // ==================== 规则管理器 ====================
+
+    function showRulesManager() {
+        const customRules = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+
+        const modal = document.createElement('div');
+        modal.className = CLASS_PANEL;
+        modal.innerHTML = `
+            <div class="${CLASS_PANEL}" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999999; display: flex; align-items: center; justify-content: center;">
+                <div class="${CLASS_PANEL}" style="background: white; padding: 20px; border-radius: 12px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; font-family: Arial, sans-serif;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #C7EDCC; padding-bottom: 10px;">
+                        <h3 style="margin: 0; font-size: 16px;">📋 规则管理器</h3>
+                        <button class="btn-close-modal" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #999;">✖</button>
+                    </div>
+
+                    <div style="margin-bottom: 15px; padding: 10px; background: #e7f3ff; border-radius: 6px; font-size: 12px; color: #0056b3;">
+                        <strong>💡 提示：</strong>使用 <strong>className</strong> 匹配class，<strong>excludeChildren: true</strong> 排除子元素
+                    </div>
+
+                    <div id="rules-list">
+                        ${renderRulesList(customRules)}
+                    </div>
+
+                    <div style="margin-top: 15px; text-align: right;">
+                        <button class="btn-close-modal" style="padding: 8px 20px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">关闭</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        modal.querySelectorAll('.btn-close-modal').forEach(btn => {
+            btn.addEventListener('click', () => modal.remove());
+        });
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal || e.target === modal.querySelector('div')) {
+                modal.remove();
+            }
+        });
+
+        bindRuleButtons();
+    }
+
+    function renderRulesList(customRules) {
+        let html = '<div style="margin-bottom: 20px;"><div style="font-size: 13px; font-weight: bold; margin-bottom: 10px; color: #666;">内置规则</div>';
+
+        DEFAULT_EXCLUSION_RULES.forEach((rule) => {
+            html += `
+                <div style="background: #f8f9fa; padding: 10px; margin-bottom: 8px; border-radius: 6px; border-left: 3px solid #ccc;">
+                    <div style="font-weight: bold; color: #666;">${rule.reason} ${rule.excludeChildren ? '<span style="background:#ff6b6b;color:white;padding:2px 6px;border-radius:3px;font-size:10px;">含子元素</span>' : ''}</div>
+                </div>
+            `;
+        });
+
+        html += '</div><div><div style="font-size: 13px; font-weight: bold; margin-bottom: 10px; color: #333;">自定义规则</div>';
+
+        if (customRules.length === 0) {
+            html += '<div style="text-align: center; color: #999; padding: 20px;">暂无自定义规则</div>';
+        } else {
+            customRules.forEach((rule, index) => {
+                html += `
+                    <div style="background: white; padding: 10px; margin-bottom: 8px; border-radius: 6px; border: 1px solid #ddd; border-left: 3px solid #C7EDCC;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="font-weight: bold; color: #333;">${rule.reason} ${rule.excludeChildren ? '<span style="background:#ff6b6b;color:white;padding:2px 6px;border-radius:3px;font-size:10px;">含子元素</span>' : ''}</div>
+                            <div>
+                                <button class="btn-edit-rule" data-index="${index}" style="background: #4ecdc4; color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; font-size: 11px; margin-right: 5px;">编辑</button>
+                                <button class="btn-delete-rule" data-index="${index}" style="background: #ff6b6b; color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; font-size: 11px;">删除</button>
+                            </div>
+                        </div>
+                        <div style="font-size: 11px; color: #666; font-family: monospace; background: #f8f9fa; padding: 5px; border-radius: 3px; margin-top: 5px;">
+                            ${JSON.stringify(rule, null, 2)}
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        html += '</div>';
+        return html;
+    }
+
+    function bindRuleButtons() {
+        document.querySelectorAll('.btn-edit-rule').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const index = parseInt(e.target.dataset.index);
+                editRule(index);
+            });
+        });
+
+        document.querySelectorAll('.btn-delete-rule').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const index = parseInt(e.target.dataset.index);
+                deleteRule(index);
+            });
+        });
+    }
+
+    function editRule(index) {
+        const customRules = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        const rule = customRules[index];
+
+        const ruleText = prompt('编辑规则（JSON格式）:', JSON.stringify(rule, null, 2));
+
+        if (ruleText) {
+            try {
+                customRules[index] = JSON.parse(ruleText);
+                saveCustomRules(customRules);
+                applyBeanGreen();
+                alert('✅ 规则更新成功！');
+            } catch (e) {
+                alert('❌ JSON格式错误！');
+            }
+        }
+    }
+
+    function deleteRule(index) {
+        if (!confirm('确定要删除这条规则吗？')) return;
+
+        const customRules = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        customRules.splice(index, 1);
+        saveCustomRules(customRules);
+        applyBeanGreen();
+        alert('✅ 规则已删除！');
+    }
+
+    // ==================== 网站黑名单管理器 ====================
+
+    function showWebsiteBlacklistManager() {
+        const modal = document.createElement('div');
+        modal.className = CLASS_PANEL;
+        modal.innerHTML = `
+            <div class="${CLASS_PANEL}" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999999; display: flex; align-items: center; justify-content: center;">
+                <div class="${CLASS_PANEL}" style="background: white; padding: 20px; border-radius: 12px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; font-family: Arial, sans-serif;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #fff3cd; padding-bottom: 10px;">
+                        <h3 style="margin: 0; font-size: 16px;">🌐 网站黑名单管理器</h3>
+                        <button class="btn-close-modal" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #999;">✖</button>
+                    </div>
+
+                    <div id="websites-list">
+                        ${renderWebsitesList()}
+                    </div>
+
+                    <div style="margin-top: 15px; text-align: right;">
+                        <button class="btn-close-modal" style="padding: 8px 20px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">关闭</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        modal.querySelectorAll('.btn-close-modal').forEach(btn => {
+            btn.addEventListener('click', () => modal.remove());
+        });
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal || e.target === modal.querySelector('div')) {
+                modal.remove();
+            }
+        });
+
+        bindWebsiteButtons();
+    }
+
+    function renderWebsitesList() {
+        let html = '<div style="margin-bottom: 20px;"><div style="font-size: 13px; font-weight: bold; margin-bottom: 10px; color: #666;">内置黑名单</div>';
+
+        WEBSITE_BLACKLIST.forEach((item) => {
+            const displayText = typeof item === 'string' ? item : `${item.reason || '正则匹配'}`;
+            html += `<div style="background: #f8f9fa; padding: 10px; margin-bottom: 5px; border-radius: 6px; border-left: 3px solid #ccc;"><span style="color: #666;">${displayText}</span></div>`;
+        });
+
+        html += '</div><div><div style="font-size: 13px; font-weight: bold; margin-bottom: 10px; color: #333;">自定义黑名单</div>';
+
+        if (customWebsiteBlacklist.length === 0) {
+            html += '<div style="text-align: center; color: #999; padding: 20px;">暂无自定义黑名单</div>';
+        } else {
+            customWebsiteBlacklist.forEach((site, index) => {
+                html += `
+                    <div style="background: white; padding: 10px; margin-bottom: 5px; border-radius: 6px; border: 1px solid #ddd; border-left: 3px solid #fff3cd; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: #333;">${site}</span>
+                        <div>
+                            <button class="btn-edit-website" data-index="${index}" style="background: #4ecdc4; color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; font-size: 11px; margin-right: 5px;">编辑</button>
+                            <button class="btn-delete-website" data-index="${index}" style="background: #ff6b6b; color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; font-size: 11px;">删除</button>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        html += '</div>';
+        return html;
+    }
+
+    function bindWebsiteButtons() {
+        document.querySelectorAll('.btn-edit-website').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const index = parseInt(e.target.dataset.index);
+                const currentSite = customWebsiteBlacklist[index];
+                const newSite = prompt('编辑网站域名:', currentSite);
+                if (newSite && newSite.trim()) {
+                    customWebsiteBlacklist[index] = newSite.trim();
+                    saveCustomWebsiteBlacklist(customWebsiteBlacklist);
+                    alert('✅ 网站已更新！刷新页面后生效。');
+                }
+            });
+        });
+
+        document.querySelectorAll('.btn-delete-website').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const index = parseInt(e.target.dataset.index);
+                if (confirm('确定要删除这个网站吗？')) {
+                    customWebsiteBlacklist.splice(index, 1);
+                    saveCustomWebsiteBlacklist(customWebsiteBlacklist);
+                    alert('✅ 网站已删除！刷新页面后生效。');
+                }
+            });
+        });
+    }
+
+    // ==================== 其他功能 ====================
+
+    function showAddRuleDialog() {
+        const ruleText = prompt(
+            '请输入排除规则（JSON格式）:\n\n' +
+            '示例:\n' +
+            '{"className": "q-notify", "excludeChildren": true, "reason": "通知框"}\n' +
+            '{"selector": ".video-player", "excludeChildren": true, "reason": "视频播放器"}\n' +
+            '{"id": "header", "excludeChildren": true, "reason": "顶部导航"}'
+        );
+
+        if (ruleText) {
+            try {
+                const newRule = JSON.parse(ruleText);
+
+                // 自动修正
+                if (newRule.class && !newRule.className) {
+                    newRule.className = newRule.class;
+                    delete newRule.class;
+                }
+                if (newRule.excludeChildren === "true") {
+                    newRule.excludeChildren = true;
+                }
+
+                const savedRules = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+                savedRules.push(newRule);
+                saveCustomRules(savedRules);
+                alert('✅ 规则添加成功！');
+                applyBeanGreen();
+            } catch (e) {
+                alert('❌ JSON格式错误！');
+            }
+        }
+    }
+
+    function addCurrentWebsiteToBlacklist() {
+        const currentHost = window.location.hostname;
+
+        if (customWebsiteBlacklist.includes(currentHost)) {
+            alert('⚠️ 当前网站已在黑名单中！');
+            return;
+        }
+
+        if (confirm(`确定要将 "${currentHost}" 添加到黑名单吗？`)) {
+            customWebsiteBlacklist.push(currentHost);
+            saveCustomWebsiteBlacklist(customWebsiteBlacklist);
+            alert(`✅ 已添加！刷新页面后生效。`);
+        }
+    }
+
+function clearAllCustomData() {
+    if (confirm('确定要清空所有自定义数据吗？')) {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(WEBSITE_BLACKLIST_STORAGE_KEY);
+        localStorage.removeItem(COLOR_STORAGE_KEY); // 新增：清除颜色
+        localStorage.removeItem(BTN_POSITION_KEY);   // 新增：清除按钮位置
+        loadCustomRules();
+        loadCustomWebsiteBlacklist();
+        alert('✅ 已清空！刷新页面后生效。');
+        location.reload(); // 建议添加：自动刷新
+    }
+}
+
+    var debugMode = false;
+    function toggleDebugMode() {
+        debugMode = !debugMode;
+        alert(debugMode ? '🔍 调试模式已开启' : '🔍 调试模式已关闭');
+
+        if (debugMode) {
+            document.addEventListener('mouseover', showDebugInfo);
+            document.addEventListener('mouseout', hideDebugInfo);
+        } else {
+            document.removeEventListener('mouseover', showDebugInfo);
+            document.removeEventListener('mouseout', hideDebugInfo);
+        }
+    }
+
+function showDebugInfo(e) {
+    // 排除控制面板和按钮
+    if (e.target.closest(`.${CLASS_PANEL}`) || e.target.closest('#bean-green-quick-btn-inner')) {
+        return;
+    }
+
+    if (e.target.tagName === 'DIV' || e.target.tagName === 'HEADER') {
+        const div = e.target;
+        let excluded = false;
+        let reason = '';
+
+        if (div.closest(`.${CLASS_EXCLUDE_CHILDREN}`)) {
+            excluded = true;
+            reason = '父元素已被排除';
+        } else {
+            for (const rule of exclusionRules) {
+                if (checkRule(div, rule, window.location.hostname)) {
+                    excluded = true;
+                    reason = rule.reason;
+                    break;
+                }
+            }
+        }
+
+        const tooltip = document.createElement('div');
+        tooltip.className = 'bean-green-debug-tooltip'; // 使用专用类名
+        tooltip.style.cssText = `
+            position: fixed;
+            top: ${e.clientY + 10}px;
+            left: ${e.clientX + 10}px;
+            background: ${excluded ? '#ff6b6b' : '#4ecdc4'};
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 9999999;
+            pointer-events: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        `;
+        tooltip.textContent = excluded ? `🚫 ${reason}` : '✅ 应用豆沙绿';
+        document.body.appendChild(tooltip);
+    }
+}
+
+function hideDebugInfo() {
+    // 只移除调试 tooltip，使用专用类名
+    document.querySelectorAll('.bean-green-debug-tooltip').forEach(el => {
+        el.remove();
+    });
+}
+
+    // ==================== 初始化 ====================
+
+    function init() {
+        loadCustomWebsiteBlacklist();
+
+        const currentHost = window.location.hostname;
+        if (customWebsiteBlacklist.includes(currentHost)) {
+            console.log(`[豆沙绿] 当前网站在黑名单中: ${currentHost}`);
+            return;
+        }
+
+        loadCustomRules();
+        injectStyle();
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                applyBeanGreen();
+                observeDOM();
+                createControlPanel();
+            });
+        } else {
+            applyBeanGreen();
+            observeDOM();
+            createControlPanel();
+        }
+    }
+
+    init();
+})();
