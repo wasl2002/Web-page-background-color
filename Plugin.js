@@ -868,7 +868,7 @@
     <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #333;">🎨 背景颜色</div>
     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
         <label style="font-size: 12px; color: #666;">当前颜色：</label>
-        <div id="current-color-preview" style="width: 30px; height: 30px; border-radius: 4px; border: 1px solid #ddd; background: ${localStorage.getItem(COLOR_STORAGE_KEY) || BEAN_GREEN};"></div>
+        <div id="current-color-preview" style="width: 30px; height: 30px; border-radius: 4px; border: 1px solid #ddd; background: ${localStorage.getItem(COLOR_STORAGE_KEY) || BEAN_GREEN} !important;"></div>
         <span id="current-color-text" style="font-size: 11px; color: #666; font-family: monospace;">${localStorage.getItem(COLOR_STORAGE_KEY) || BEAN_GREEN}</span>
     </div>
     <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px;">
