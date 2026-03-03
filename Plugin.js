@@ -169,7 +169,7 @@
 
     function isWebsiteBlacklisted() {
         const currentHost = window.location.hostname;
-        
+
         for (const item of WEBSITE_BLACKLIST) {
             if (typeof item === 'string') {
                 if (currentHost.includes(item) || item.includes(currentHost)) {
@@ -409,7 +409,7 @@
                 }
                 return isSmallInteractive;
             },
-            excludeChildren: false,
+            excludeChildren: true,
             reason: '可交互元素'
         },
 
@@ -723,7 +723,7 @@
                 if (checkRule(div, rule, currentHost, computedStyle)) {
                     isExcluded = true;
                     matchedRule = rule;
-                    // console.log("已排除:",div, rule, currentHost)
+                    // console.log("已排除1:",div, rule, currentHost,computedStyle)
                     break;
                 }
             }
@@ -848,6 +848,7 @@
                     if (checkRule(div, rule, currentHost, computedStyle)) {
                         isExcluded = true;
                         matchedRule = rule;
+                        // console.log("已排除2:",div, rule, currentHost,computedStyle)
                         break;
                     }
                 }
@@ -2075,6 +2076,7 @@ return div.offsetWidth > 1000;`,
                     if (checkRule(div, rule, window.location.hostname)) {
                         excluded = true;
                         reason = rule.reason;
+                        // console.log("已排除3:",div, rule, window.location.hostname)
                         break;
                     }
                 }
