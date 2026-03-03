@@ -456,6 +456,12 @@
                         div.id === 'bilibili-player';
                 }
 
+                // zhihu
+                if (currentHost.includes('zhihu.com')) {
+                  // console.log('zhihu.com',div.classList[0],div.classList[0].includes('css-'),div.classList,div)
+                    return div.classList.length==1&&(div.classList[0].includes('css-'));
+                }
+
                 // console.log(5,div, currentHost)
                 return false;
             },
@@ -777,7 +783,7 @@
         /* 排除子元素的所有后代 */
         .bean-green-exclude-children div,
         .bean-green-exclude-children header {
-           /* background-color: initial !important;*/
+            background-color: initial !important;
         }
 
         /* 确保排除元素本身也不应用 */
