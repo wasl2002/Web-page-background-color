@@ -745,12 +745,12 @@
         /* 排除子元素的所有后代 */
         .bean-green-exclude-children div,
         .bean-green-exclude-children header {
-            background-color: initial !important;
+          /*  background-color: initial !important;*/
         }
 
         /* 确保排除元素本身也不应用 */
         .bean-green-excluded {
-            background-color: initial !important;
+           /* background-color: initial !important;*/
         }
     `;
 
