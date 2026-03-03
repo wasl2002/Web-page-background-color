@@ -169,7 +169,7 @@
 
     function isWebsiteBlacklisted() {
         const currentHost = window.location.hostname;
-
+        
         for (const item of WEBSITE_BLACKLIST) {
             if (typeof item === 'string') {
                 if (currentHost.includes(item) || item.includes(currentHost)) {
@@ -182,13 +182,29 @@
             }
         }
 
+        // 检查用户自定义黑名单（简单字符串匹配）
+        if (customWebsiteBlacklist && customWebsiteBlacklist.length) {
+            for (const site of customWebsiteBlacklist) {
+                if (!site) continue;
+                try {
+                    if (currentHost.includes(site) || site.includes(currentHost)) {
+                        return true;
+                    }
+                } catch (e) {
+                    // 忽略异常并继续
+                }
+            }
+        }
+
         return false;
     }
 
-    if (isWebsiteBlacklisted()) {
-        console.log('[豆沙绿] 当前网站在黑名单中，脚本不执行');
-        return;
-    }
+    // 先加载用户自定义黑名单，再做统一检查（避免时序不一致）
+    // 提前声明，避免在函数执行时遇到 TDZ（暂时性死区）
+    let exclusionRules = [];
+    let customWebsiteBlacklist = [];
+
+    // 延迟加载自定义黑名单并检查是否需要停止脚本（在配置常量声明后执行）
 
     // ==================== 配置区域 ====================
 
@@ -202,6 +218,13 @@
 
     const BTN_POSITION_KEY = 'bean_green_btn_position'; // 新增：按钮位置存储key
     const COLOR_STORAGE_KEY = 'bean_green_color'; // 新增：颜色存储key
+
+    // 先加载用户自定义黑名单，再做统一检查（避免时序不一致）
+    loadCustomWebsiteBlacklist();
+    if (isWebsiteBlacklisted()) {
+        console.log('[豆沙绿] 当前网站在黑名单中，脚本不执行');
+        return;
+    }
 
     // ==================== 规则辅助函数 ====================
     // 这些函数可以在 DEFAULT_EXCLUSION_RULES 的 customCheck 中直接使用
@@ -312,7 +335,8 @@
             reason: '视频播放器（含子元素）'
         },
         {
-            selector: 'nav, header, [role="navigation"]',
+          // header,
+            selector: 'nav,  [role="navigation"]',
             excludeChildren: true,
             reason: '导航栏（含子元素）'
         },
@@ -361,7 +385,7 @@
                     div.tagName === 'BUTTON' ||
                     div.getAttribute('type') === 'button';
                 if (isSmallInteractive) {
-                    console.log(1)
+                    // console.log(1)
                 }
                 return isSmallInteractive & 0;
             },
@@ -489,8 +513,6 @@
         }
     ];
 
-    let exclusionRules = [];
-    let customWebsiteBlacklist = [];
     let applyTimeout = null;
 
     // ==================== 存储功能 ====================
@@ -536,7 +558,7 @@
 
     // ==================== 核心功能 ====================
 
-    function checkRule(div, rule, currentHost) {
+    function checkRule(div, rule, currentHost, computedStyle) {
         // ==================== 1. 网站限制 ====================
         if (rule.website && !currentHost.includes(rule.website)) {
             return false;
@@ -578,7 +600,7 @@
 
         // ==================== 6. 位置匹配 ====================
         if (rule.position) {
-            const style = window.getComputedStyle(div);
+            const style = computedStyle || window.getComputedStyle(div);
             const position = style.position;
             const zIndex = parseInt(style.zIndex) || 0;
 
@@ -658,13 +680,20 @@
             clearTimeout(applyTimeout);
         }
 
-        applyTimeout = setTimeout(applyBeanGreenNow, 200);
+        applyTimeout = setTimeout(()=>{
+            if (typeof requestIdleCallback === 'function') {
+                requestIdleCallback(() => applyBeanGreenNow());
+            } else {
+                applyBeanGreenNow();
+            }
+        }, 200);
     }
 
     // 立即应用
     function applyBeanGreenNow() {
         const currentHost = window.location.hostname;
-        const divs = document.querySelectorAll('div, header');
+        const TARGET_SELECTOR = `div:not(.${CLASS_PANEL}):not(.${CLASS_EXCLUDED}):not(.${CLASS_EXCLUDE_CHILDREN}), header:not(.${CLASS_PANEL}):not(.${CLASS_EXCLUDED}):not(.${CLASS_EXCLUDE_CHILDREN})`;
+        const divs = document.querySelectorAll(TARGET_SELECTOR);
 
         let excludedCount = 0;
         let appliedCount = 0;
@@ -674,6 +703,8 @@
             if (div.closest(`.${CLASS_PANEL}`)) {
                 continue;
             }
+
+            const computedStyle = window.getComputedStyle(div);
 
             // 检查是否在需要排除子元素的父元素内部
             if (div.closest(`.${CLASS_EXCLUDE_CHILDREN}`)) {
@@ -689,9 +720,10 @@
             let matchedRule = null;
 
             for (const rule of exclusionRules) {
-                if (checkRule(div, rule, currentHost)) {
+                if (checkRule(div, rule, currentHost, computedStyle)) {
                     isExcluded = true;
                     matchedRule = rule;
+                    // console.log("已排除:",div, rule, currentHost)
                     break;
                 }
             }
@@ -745,7 +777,7 @@
         /* 排除子元素的所有后代 */
         .bean-green-exclude-children div,
         .bean-green-exclude-children header {
-          /*  background-color: initial !important;*/
+           /* background-color: initial !important;*/
         }
 
         /* 确保排除元素本身也不应用 */
@@ -765,44 +797,147 @@
         }
     }
 
-    // 监听DOM变化（超轻量版 - 只监听新增节点）
-    function observeDOM() {
-        const observer = new MutationObserver((mutations) => {
-            // 只在有新增节点时触发
-            let hasNewNodes = false;
+    // 监听DOM变化（超轻量版 - 增量处理新增节点以避免全量扫描）
+    // 收集新增节点并防抖处理，只对新增的 div/header 或其子孙进行检查
+    const _beanGreenPendingNodes = new Set();
+    let _beanGreenPendingTimer = null;
 
-            for (const mutation of mutations) {
-                if (mutation.addedNodes.length > 0) {
-                    // 检查新增的节点是否包含div
-                    for (const node of mutation.addedNodes) {
-                        if (node.nodeType === Node.ELEMENT_NODE) {
-                            // 跳过控制面板
-                            if (node.classList && node.classList.contains(CLASS_PANEL)) {
-                                continue;
-                            }
+    function applyBeanGreenForNodes(nodes) {
+        const currentHost = window.location.hostname;
+        let excludedCount = 0;
+        let appliedCount = 0;
 
-                            // 检查是否是div或包含div
-                            if (node.tagName === 'DIV' || node.tagName === 'HEADER' || (node.querySelector && (node.querySelector('div') || node.querySelector('header')))) {
-                                hasNewNodes = true;
-                                break;
-                            }
-                        }
+        const elements = [];
+        for (const node of nodes) {
+            if (!node || node.nodeType !== Node.ELEMENT_NODE) continue;
+            if (node.classList && node.classList.contains(CLASS_PANEL)) continue;
+
+            if (node.matches && (node.matches('div') || node.matches('header'))) {
+                elements.push(node);
+            }
+
+            if (node.querySelectorAll) {
+                node.querySelectorAll('div, header').forEach(el => elements.push(el));
+            }
+        }
+
+        const unique = Array.from(new Set(elements));
+        // 分批异步处理，避免一次性阻塞主线程
+        const BATCH_SIZE = 200;
+
+        function processRange(start, end) {
+            for (let i = start; i < end; i++) {
+                const div = unique[i];
+                if (!div) continue;
+                if (div.closest(`.${CLASS_PANEL}`)) continue;
+
+                if (div.closest(`.${CLASS_EXCLUDE_CHILDREN}`)) {
+                    if (!div.classList.contains(CLASS_EXCLUDED)) {
+                        div.classList.add(CLASS_EXCLUDED);
+                    }
+                    excludedCount++;
+                    continue;
+                }
+
+                const computedStyle = window.getComputedStyle(div);
+
+                let isExcluded = false;
+                let matchedRule = null;
+
+                for (const rule of exclusionRules) {
+                    if (checkRule(div, rule, currentHost, computedStyle)) {
+                        isExcluded = true;
+                        matchedRule = rule;
+                        break;
                     }
                 }
 
-                if (hasNewNodes) break;
+                if (isExcluded) {
+                    if (!div.classList.contains(CLASS_EXCLUDED)) {
+                        div.classList.add(CLASS_EXCLUDED);
+                    }
+                    excludedCount++;
+
+                    if (matchedRule && matchedRule.excludeChildren === true) {
+                        if (!div.classList.contains(CLASS_EXCLUDE_CHILDREN)) {
+                            div.classList.add(CLASS_EXCLUDE_CHILDREN);
+                        }
+                    }
+                } else {
+                    appliedCount++;
+                }
+            }
+        }
+
+        function scheduleChunks() {
+            if (unique.length === 0) {
+                console.log(`[豆沙绿] 增量应用: ${appliedCount}, 已排除: ${excludedCount}`);
+                return;
             }
 
-            if (hasNewNodes) {
-                applyBeanGreen();
+            let index = 0;
+
+            const runNext = (deadline) => {
+                const end = Math.min(index + BATCH_SIZE, unique.length);
+                processRange(index, end);
+                index = end;
+
+                if (index < unique.length) {
+                    if (typeof requestIdleCallback === 'function') {
+                        requestIdleCallback(runNext);
+                    } else {
+                        setTimeout(() => runNext(), 0);
+                    }
+                } else {
+                    console.log(`[豆沙绿] 增量应用: ${appliedCount}, 已排除: ${excludedCount}`);
+                }
+            };
+
+            if (typeof requestIdleCallback === 'function') {
+                requestIdleCallback(runNext);
+            } else {
+                setTimeout(() => runNext(), 0);
+            }
+        }
+
+        scheduleChunks();
+    }
+
+    function scheduleProcessPendingNodes() {
+        if (_beanGreenPendingTimer) clearTimeout(_beanGreenPendingTimer);
+        _beanGreenPendingTimer = setTimeout(() => {
+            const nodes = Array.from(_beanGreenPendingNodes);
+            _beanGreenPendingNodes.clear();
+            if (nodes.length === 0) {
+                applyBeanGreenNow();
+            } else {
+                applyBeanGreenForNodes(nodes);
+            }
+        }, 200);
+    }
+
+    function observeDOM() {
+        const observer = new MutationObserver((mutations) => {
+            let added = false;
+            for (const mutation of mutations) {
+                if (mutation.addedNodes && mutation.addedNodes.length > 0) {
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                        if (node.classList && node.classList.contains(CLASS_PANEL)) continue;
+                        _beanGreenPendingNodes.add(node);
+                        added = true;
+                    }
+                }
+            }
+
+            if (added) {
+                scheduleProcessPendingNodes();
             }
         });
 
-        // 只监听子节点变化，不监听属性
         const config = {
             childList: true,
             subtree: true
-            // 注意：没有 attributes: true，完全不监听属性变化
         };
 
         if (document.body) {
@@ -868,7 +1003,7 @@
     <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #333;">🎨 背景颜色</div>
     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
         <label style="font-size: 12px; color: #666;">当前颜色：</label>
-        <div id="current-color-preview" style="width: 30px; height: 30px; border-radius: 4px; border: 1px solid #ddd; background: ${localStorage.getItem(COLOR_STORAGE_KEY) || BEAN_GREEN} !important;"></div>
+        <div id="current-color-preview" style="width: 30px; height: 30px; border-radius: 4px; border: 1px solid #ddd; background: ${localStorage.getItem(COLOR_STORAGE_KEY) || BEAN_GREEN} !important; "></div>
         <span id="current-color-text" style="font-size: 11px; color: #666; font-family: monospace;">${localStorage.getItem(COLOR_STORAGE_KEY) || BEAN_GREEN}</span>
     </div>
     <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px;">
@@ -946,8 +1081,9 @@
 
         quickBtn.innerHTML = `
         <div class="${CLASS_PANEL}" id="bean-green-quick-btn-inner" style="${btnStyle}">
-            🌿 豆沙绿
+            🌿
         </div>
+<!--         🌿豆沙绿 -->
     `;
         document.body.appendChild(quickBtn);
 
@@ -1112,6 +1248,7 @@
             // 移除过渡效果
             setTimeout(() => {
                 element.style.transition = '';
+                // console.log(22)
             }, 300);
 
             return nearestEdge;
@@ -1231,11 +1368,14 @@
             // 延迟重置拖拽标记，避免触发点击
             setTimeout(() => {
                 element.dataset.dragging = 'false';
+                // console.log(33)
             }, 10);
         });
 
         // 页面加载时检查位置
-        setTimeout(ensureInView, 100);
+                setTimeout(()=>{
+                    ensureInView();
+                }, 100);
 
         // 窗口大小改变时调整位置
         window.addEventListener('resize', () => {
@@ -1793,50 +1933,7 @@ return div.offsetWidth > 1000;`,
         );
         addEditorContainer.appendChild(addEditor);
 
-        // 修改确认添加按钮的逻辑
-        modal.querySelector('#btn-confirm-add-rule').addEventListener('click', () => {
-            const ruleType = ruleTypeSelect.value;
-
-            if (ruleType === 'selector') {
-                // ... 选择器规则逻辑保持不变
-            } else {
-                // 自定义函数规则
-                const reasonInput = modal.querySelector('#custom-rule-reason').value.trim();
-                const codeInput = getCodeFromEditor('add-custom-code-editor'); // 使用编辑器获取代码
-                const excludeChildren = modal.querySelector('#custom-exclude-children').checked;
-
-                if (!codeInput) {
-                    alert('❌ 请输入自定义函数！');
-                    return;
-                }
-
-                if (!reasonInput) {
-                    alert('❌ 请输入规则说明！');
-                    return;
-                }
-
-                // 验证函数语法
-                try {
-                    new Function('div', 'currentHost', codeInput);
-                } catch (e) {
-                    alert('❌ 函数语法错误！\n\n' + e.message);
-                    return;
-                }
-
-                const newRule = {
-                    customCheck: codeInput,
-                    excludeChildren: excludeChildren,
-                    reason: reasonInput
-                };
-
-                const savedRules = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-                savedRules.push(newRule);
-                saveCustomRules(savedRules);
-                alert('✅ 自定义规则添加成功！');
-                applyBeanGreen();
-                modal.remove();
-            }
-        });
+        // （已合并为下面的统一处理）
 
 
 
@@ -2013,14 +2110,6 @@ return div.offsetWidth > 1000;`,
     // ==================== 初始化 ====================
 
     function init() {
-        loadCustomWebsiteBlacklist();
-
-        const currentHost = window.location.hostname;
-        if (customWebsiteBlacklist.includes(currentHost)) {
-            console.log(`[豆沙绿] 当前网站在黑名单中: ${currentHost}`);
-            return;
-        }
-
         loadCustomRules();
         injectStyle();
 
