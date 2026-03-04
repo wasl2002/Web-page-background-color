@@ -771,7 +771,7 @@
         /* 优先恢复控制面板内部的背景 */
         .bean-green-panel,
         .bean-green-panel * {
-           /* background-color: initial !important;*/
+            background-color: initial !important;
         }
 
         /* 豆沙绿背景 - 排除控制面板和已标记的元素 */
@@ -780,15 +780,15 @@
             background-color: ${bgColor} ;
         }
 
-        /* 排除子元素的所有后代 */
+        /* 排除子元素的所有后代 initial !important;*/
         .bean-green-exclude-children div,
         .bean-green-exclude-children header {
-            background-color: initial !important;
+            background-color:  ${bgColor};
         }
 
-        /* 确保排除元素本身也不应用 */
+        /* 确保排除元素本身也不应用 initial !important; */
         .bean-green-excluded {
-           /* background-color: initial !important;*/
+            background-color: ${bgColor};
         }
     `;
 
