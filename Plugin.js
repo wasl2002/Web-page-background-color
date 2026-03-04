@@ -751,6 +751,11 @@
         }
 
         console.log(`[豆沙绿] 已应用: ${appliedCount}, 已排除: ${excludedCount}`);
+
+        // 检测是否真正生效，若失效则自动修复
+        setTimeout(() => {
+            try { checkAndRepair(); } catch (e) { }
+        }, 300);
     }
 
     // 注入CSS样式
@@ -768,28 +773,28 @@
         const bgColor = localStorage.getItem('bean_green_color') || BEAN_GREEN;
 
         style.textContent = `
-        /* 优先恢复控制面板内部的背景 */
-        .bean-green-panel,
-        .bean-green-panel * {
-            background-color: initial !important;
-        }
+                /* 控制面板及其内部元素保持原样 */
+                .bean-green-panel,
+                .bean-green-panel * {
+                   /*  background-color: initial !important; */
+                }
 
-        /* 豆沙绿背景 - 排除控制面板和已标记的元素 */
-        div:not(.bean-green-panel):not(.bean-green-excluded):not(.bean-green-exclude-children),
-        header:not(.bean-green-panel):not(.bean-green-excluded):not(.bean-green-exclude-children) {
-            background-color: ${bgColor} ;
-        }
+                /* 豆沙绿背景 - 排除控制面板和已标记的元素。使用 !important 覆盖页面内联样式 */
+                div:not(.bean-green-panel):not(.bean-green-excluded):not(.bean-green-exclude-children),
+                header:not(.bean-green-panel):not(.bean-green-excluded):not(.bean-green-exclude-children) {
+                        background-color: ${bgColor} !important;
+                }
 
-        /* 排除子元素的所有后代 initial !important;*/
-        .bean-green-exclude-children div,
-        .bean-green-exclude-children header {
-            background-color:  ${bgColor};
-        }
+                /* 排除子元素的所有后代，恢复初始背景 */
+                .bean-green-exclude-children div,
+                .bean-green-exclude-children header {
+                    background-color: initial !important;
+                }
 
-        /* 确保排除元素本身也不应用 initial !important; */
-        .bean-green-excluded {
-            background-color: ${bgColor};
-        }
+                /* 确保排除元素本身也恢复初始样式 */
+                .bean-green-excluded {
+                     background-color: initial !important;
+                }
     `;
 
         if (document.head) {
@@ -879,6 +884,7 @@
         function scheduleChunks() {
             if (unique.length === 0) {
                 console.log(`[豆沙绿] 增量应用: ${appliedCount}, 已排除: ${excludedCount}`);
+                try { checkAndRepair(); } catch (e) {}
                 return;
             }
 
@@ -897,6 +903,7 @@
                     }
                 } else {
                     console.log(`[豆沙绿] 增量应用: ${appliedCount}, 已排除: ${excludedCount}`);
+                    try { checkAndRepair(); } catch (e) {}
                 }
             };
 
@@ -947,11 +954,12 @@
             subtree: true
         };
 
-        if (document.body) {
-            observer.observe(document.body, config);
+        const observeTarget = document.documentElement || document.body;
+        if (observeTarget) {
+            observer.observe(observeTarget, config);
         } else {
             document.addEventListener('DOMContentLoaded', () => {
-                observer.observe(document.body, config);
+                observer.observe(document.documentElement || document.body, config);
             });
         }
     }
@@ -978,6 +986,10 @@
     }
 
     function createControlPanel() {
+        // 如果已经存在控制面板或快捷按钮，则不重复创建（支持 SPA 跳转场景）
+        if (document.getElementById('bean-green-panel-content') || document.getElementById('bean-green-quick-btn')) {
+            return;
+        }
         // 读取保存的按钮位置
         const savedPosition = JSON.parse(localStorage.getItem(BTN_POSITION_KEY) || '{}');
 
@@ -985,61 +997,114 @@
         panel.className = CLASS_PANEL;
 
         panel.innerHTML = `
-        <div class="${CLASS_PANEL} bean-green-exclude-children" id="bean-green-panel-content" style="position: fixed; top: 10px; right: 10px; z-index: 999999; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); font-family: Arial, sans-serif; min-width: 320px; max-width: 400px; max-height: 80vh; overflow-y: auto; display: none;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #C7EDCC; padding-bottom: 10px;">
-                <h3 style="margin: 0; font-size: 16px; color: #333;">🌿 豆沙绿控制面板</h3>
-                <button id="btn-close-panel" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #999;">✖</button>
-            </div>
+<div class="${CLASS_PANEL} bean-green-exclude-children" id="bean-green-panel-content"
+     style="position: fixed; top: 10px; right: 10px; z-index: 999999; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); font-family: Arial, sans-serif; min-width: 320px; max-width: 400px; max-height: 80vh; overflow-y: auto; display: none;">
+  <div class="bean-green-excluded" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid block; padding-bottom: 10px;background-color: white;">
+    <h3 style="margin: 0; font-size: 16px; color: #333;">🌿 豆沙绿控制面板</h3>
+    <button id="btn-close-panel" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #999;">
+      ✖
+    </button>
+  </div>
 
-            <div style="background: #f8f9fa; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 12px; color: #666;">
-                <div>当前网站: <strong style="color: #333;">${window.location.hostname}</strong></div>
-            </div>
+  <div  class="bean-green-excluded" style="background: #c5daee; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 12px; color: #666;">
+    <div class="bean-green-excluded">当前网站: <strong style="color: #333;">${window.location.hostname}</strong></div>
+  </div>
 
-            <div style="margin-bottom: 15px;">
-                <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #333;">📦 元素排除规则</div>
-                <button id="btn-add-rule" style="width: 100%; padding: 10px; cursor: pointer; border: 1px solid #C7EDCC; background: white; border-radius: 6px; font-weight: bold; color: #333;">➕ 添加新规则</button>
-                <button id="btn-manage-rules" style="width: 100%; padding: 10px; margin-top: 5px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">📋 管理规则</button>
-            </div>
+  <div class="bean-green-exclude-children" style="margin-bottom: 15px;">
+    <div class="bean-green-excluded" style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #333;">📦
+      元素排除规则
+    </div>
+    <button id="btn-add-rule"
+            style="width: 100%; padding: 10px; cursor: pointer; border: 1px solid #C7EDCC; background: white; border-radius: 6px; font-weight: bold; color: #333;">
+      ➕ 添加新规则
+    </button>
+    <button id="btn-manage-rules"
+            style="width: 100%; padding: 10px; margin-top: 5px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">
+      📋 管理规则
+    </button>
+  </div>
 
-            <div style="margin-bottom: 15px;">
-                <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #333;">🌐 网站黑名单</div>
-                <button id="btn-add-website" style="width: 100%; padding: 10px; cursor: pointer; border: 1px solid #fff3cd; background: #fff3cd; border-radius: 6px; font-weight: bold; color: #856404;">🚫 排除当前网站</button>
-                <button id="btn-manage-websites" style="width: 100%; padding: 10px; margin-top: 5px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">📋 管理黑名单</button>
-            </div>
-            <div style="margin-bottom: 15px;">
-    <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #333;">🎨 背景颜色</div>
-    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
-        <label style="font-size: 12px; color: #666;">当前颜色：</label>
-        <div id="current-color-preview" style="width: 30px; height: 30px; border-radius: 4px; border: 1px solid #ddd; background: ${localStorage.getItem(COLOR_STORAGE_KEY) || BEAN_GREEN} !important; "></div>
-        <span id="current-color-text" style="font-size: 11px; color: #666; font-family: monospace;">${localStorage.getItem(COLOR_STORAGE_KEY) || BEAN_GREEN}</span>
+  <div class="bean-green-exclude-children" style="margin-bottom: 15px;">
+    <div class="bean-green-exclude-children"
+         style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #333;">🌐 网站黑名单
     </div>
-    <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px;">
-        <button class="btn-preset-color" data-color="rgba(199, 237, 204, 0.8)" style="flex: 1; min-width: 60px; padding: 8px; cursor: pointer; border: 2px solid #ddd; background: rgba(199, 237, 204, 0.8); border-radius: 6px; font-size: 11px;">豆沙绿</button>
-        <button class="btn-preset-color" data-color="rgba(200, 200, 200, 0.8)" style="flex: 1; min-width: 60px; padding: 8px; cursor: pointer; border: 2px solid #ddd; background: rgba(200, 200, 200, 0.8); border-radius: 6px; font-size: 11px;">浅灰</button>
-        <button class="btn-preset-color" data-color="rgba(255, 245, 220, 0.8)" style="flex: 1; min-width: 60px; padding: 8px; cursor: pointer; border: 2px solid #ddd; background: rgba(255, 245, 220, 0.8); border-radius: 6px; font-size: 11px;">米黄</button>
-        <button class="btn-preset-color" data-color="rgba(230, 240, 255, 0.8)" style="flex: 1; min-width: 60px; padding: 8px; cursor: pointer; border: 2px solid #ddd; background: rgba(230, 240, 255, 0.8); border-radius: 6px; font-size: 11px;">浅蓝</button>
+    <button id="btn-add-website"
+            style="width: 100%; padding: 10px; cursor: pointer; border: 1px solid #fff3cd; background: #fff3cd; border-radius: 6px; font-weight: bold; color: #856404;">
+      🚫 排除当前网站
+    </button>
+    <button id="btn-manage-websites"
+            style="width: 100%; padding: 10px; margin-top: 5px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">
+      📋 管理黑名单
+    </button>
+  </div>
+  <div class="bean-green-exclude-children" style="margin-bottom: 15px;">
+    <div class="bean-green-excluded" style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #333;">🎨
+      背景颜色
     </div>
-    <div style="display: flex; gap: 5px; margin-bottom: 10px;">
-        <label style="font-size: 12px; color: #666; white-space: nowrap;">自定义：</label>
-        <input type="color" id="color-picker" value="#c7edcc" style="flex: 1; height: 35px; cursor: pointer; border: 1px solid #ddd; border-radius: 6px;">
-        <input type="range" id="opacity-slider" min="0" max="100" value="80" style="flex: 1;">
-        <span id="opacity-value" style="font-size: 11px; color: #666; min-width: 35px;">80%</span>
+    <div class="bean-green-exclude-children"
+         style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+      <label style="font-size: 12px; color: #666;">当前颜色：</label>
+      <div class="bean-green-exclude-children" id="current-color-preview"
+           style="width: 30px; height: 30px; border-radius: 4px; border: 1px solid #ddd; background: ${localStorage.getItem(COLOR_STORAGE_KEY) || BEAN_GREEN} !important; "></div>
+      <span id="current-color-text" style="font-size: 11px; color: #666; font-family: monospace;">${localStorage.getItem(COLOR_STORAGE_KEY) || BEAN_GREEN}</span>
     </div>
-    <button id="btn-apply-color" style="width: 100%; padding: 10px; cursor: pointer; border: 1px solid #C7EDCC; background: white; border-radius: 6px; font-weight: bold; color: #333;">✅ 应用颜色</button>
-    <button id="btn-reset-color" style="width: 100%; padding: 10px; margin-top: 5px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">🔄 恢复默认</button>
-</div>
-            <div style="margin-bottom: 15px;">
-                <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #333;">🔧 工具</div>
-                <button id="btn-toggle-debug" style="width: 100%; padding: 10px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">🔍 调试模式${debugMode ? '-已开启' : '-关闭'}</button>
-                <button id="btn-clear-all" style="width: 100%; padding: 10px; margin-top: 5px; cursor: pointer; border: 1px solid #ff6b6b; background: white; color: #ff6b6b; border-radius: 6px;">🗑️ 清空所有自定义数据</button>
-            </div>
-        </div>
-    `;
-        document.body.appendChild(panel);
+    <div class="bean-green-exclude-children" style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px;">
+      <button class="btn-preset-color" data-color="rgba(199, 237, 204, 0.8)"
+              style="flex: 1; min-width: 60px; padding: 8px; cursor: pointer; border: 2px solid #ddd; background: rgba(199, 237, 204, 0.8); border-radius: 6px; font-size: 11px;">
+        豆沙绿
+      </button>
+      <button class="btn-preset-color" data-color="rgba(200, 200, 200, 0.8)"
+              style="flex: 1; min-width: 60px; padding: 8px; cursor: pointer; border: 2px solid #ddd; background: rgba(200, 200, 200, 0.8); border-radius: 6px; font-size: 11px;">
+        浅灰
+      </button>
+      <button class="btn-preset-color" data-color="rgba(255, 245, 220, 0.8)"
+              style="flex: 1; min-width: 60px; padding: 8px; cursor: pointer; border: 2px solid #ddd; background: rgba(255, 245, 220, 0.8); border-radius: 6px; font-size: 11px;">
+        米黄
+      </button>
+      <button class="btn-preset-color" data-color="rgba(230, 240, 255, 0.8)"
+              style="flex: 1; min-width: 60px; padding: 8px; cursor: pointer; border: 2px solid #ddd; background: rgba(230, 240, 255, 0.8); border-radius: 6px; font-size: 11px;">
+        浅蓝
+      </button>
+    </div>
+    <div class="bean-green-exclude-children" style="display: flex; gap: 5px; margin-bottom: 10px;">
+      <label style="font-size: 12px; color: #666; white-space: nowrap;">自定义：</label>
+      <input type="color" id="color-picker" value="#c7edcc"
+             style="flex: 1; height: 35px; cursor: pointer; border: 1px solid #ddd; border-radius: 6px;">
+      <input type="range" id="opacity-slider" min="0" max="100" value="80" style="flex: 1;">
+      <span id="opacity-value" style="font-size: 11px; color: #666; min-width: 35px;">80%</span>
+    </div>
+    <button id="btn-apply-color"
+            style="width: 100%; padding: 10px; cursor: pointer; border: 1px solid #C7EDCC; background: white; border-radius: 6px; font-weight: bold; color: #333;">
+      ✅ 应用颜色
+    </button>
+    <button id="btn-reset-color"
+            style="width: 100%; padding: 10px; margin-top: 5px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">
+      🔄 恢复默认
+    </button>
+  </div>
+  <div class="bean-green-exclude-children" style="margin-bottom: 15px;">
+    <div class="bean-green-excluded" style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #333;">🔧 工具</div>
+    <button id="btn-toggle-debug"
+            style="width: 100%; padding: 10px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">
+      🔍 调试模式${debugMode ? '-已开启' : '-关闭'}
+    </button>
+    <button id="btn-clear-all"
+            style="width: 100%; padding: 10px; margin-top: 5px; cursor: pointer; border: 1px solid #ff6b6b; background: white; color: #ff6b6b; border-radius: 6px;">
+      🗑️ 清空所有自定义数据
+    </button>
+  </div>
+</div>`;
+        const hostParent = document.documentElement || document.body;
+        // 强制重置面板外层样式，避免站点样式干扰（行距、字体、继承等）
+        try { panel.style.cssText = 'all: initial; box-sizing: border-box; position: fixed; top: 10px; right: 10px; z-index: 2147483647;'; } catch (e) {}
+        hostParent.appendChild(panel);
 
         const quickBtn = document.createElement('div');
         quickBtn.className = CLASS_PANEL;
         quickBtn.id = 'bean-green-quick-btn';
+
+        // 快捷按钮也做样式隔离
+        try { quickBtn.style.cssText = 'all: initial; box-sizing: border-box; position: fixed; z-index: 2147483646;'; } catch (e) {}
 
         // 使用保存的位置或默认位置
         const btnTop = savedPosition.top || '10px';
@@ -1092,7 +1157,7 @@
         </div>
 <!--         🌿豆沙绿 -->
     `;
-        document.body.appendChild(quickBtn);
+        hostParent.appendChild(quickBtn);
 
         const panelDiv = document.getElementById('bean-green-panel-content');
         const quickBtnDiv = document.getElementById('bean-green-quick-btn-inner');
@@ -1405,7 +1470,7 @@
         modal.innerHTML = `
             <div class="${CLASS_PANEL}" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999999; display: flex; align-items: center; justify-content: center;">
                 <div class="${CLASS_PANEL}" style="background: white; padding: 20px; border-radius: 12px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; font-family: Arial, sans-serif;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #C7EDCC; padding-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #C7EDCC; padding-bottom: 10px;background-color: white;">
                         <h3 style="margin: 0; font-size: 16px;">📋 规则管理器</h3>
                         <button class="btn-close-modal" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #999;">✖</button>
                     </div>
@@ -1515,7 +1580,7 @@
         modal.innerHTML = `
         <div class="${CLASS_PANEL}" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 99999999; display: flex; align-items: center; justify-content: center; font-family: Arial, sans-serif;">
             <div class="${CLASS_PANEL}" style="background: white; padding: 20px; border-radius: 12px; max-width: 900px; width: 90%; max-height: 90vh; overflow-y: auto;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #C7EDCC; padding-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #C7EDCC; padding-bottom: 10px;background-color: white;">
                     <h3 style="margin: 0; font-size: 16px;">✏️ 编辑规则</h3>
                     <button class="btn-close-modal" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #999;">✖</button>
                 </div>
@@ -1793,12 +1858,12 @@
         modal.innerHTML = `
         <div class="${CLASS_PANEL}" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 99999999; display: flex; align-items: center; justify-content: center; font-family: Arial, sans-serif;">
             <div class="${CLASS_PANEL}" style="background: white; padding: 20px; border-radius: 12px; max-width: 800px; width: 90%; max-height: 90vh; overflow-y: auto;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #C7EDCC; padding-bottom: 10px;">
+                <div class="${CLASS_EXCLUDED}" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid block; padding-bottom: 10px;background-color: white;">
                     <h3 style="margin: 0; font-size: 16px;">➕ 添加排除规则</h3>
                     <button class="btn-close-modal" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #999;">✖</button>
                 </div>
 
-                <div style="margin-bottom: 15px;">
+                <div class="${CLASS_EXCLUDE_CHILDREN}" style="margin-bottom: 15px;">
                     <label style="display: block; margin-bottom: 5px; font-weight: bold; font-size: 13px;">规则类型：</label>
                     <select id="rule-type" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px;">
                         <option value="selector">选择器规则（推荐）</option>
@@ -1806,13 +1871,13 @@
                     </select>
                 </div>
 
-                <div id="selector-rule-form">
-                    <div style="margin-bottom: 15px;">
+                <div id="selector-rule-form" class="${CLASS_EXCLUDE_CHILDREN}" >
+                    <div class="${CLASS_EXCLUDE_CHILDREN}" style="margin-bottom: 15px;">
                         <label style="display: block; margin-bottom: 5px; font-weight: bold; font-size: 13px;">规则说明：</label>
                         <input type="text" id="rule-reason" placeholder="例如：视频播放器" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px;">
                     </div>
 
-                    <div style="margin-bottom: 15px;">
+                    <div class="${CLASS_EXCLUDE_CHILDREN}" style="margin-bottom: 15px;">
                         <label style="display: block; margin-bottom: 5px; font-weight: bold; font-size: 13px;">规则内容（JSON格式）：</label>
                         <textarea id="rule-content" style="width: 100%; height: 150px; padding: 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 12px; font-family: monospace;" placeholder='示例1：
                         {
@@ -1852,6 +1917,50 @@
     // 9. 原因说明
     "reason": "视频播放器"                  // 规则说明
 }
+
+    // ==================== SPA / 客户端导航支持 ====================
+    // 当页面使用 pushState/replaceState 或 popstate 导航（无完整刷新）时，重新注入样式并保证面板存在
+    function handleUrlChange() {
+        try {
+            // 重新注入样式（颜色可能随前端渲染被覆盖）
+            injectStyle();
+            // 重新应用排除/增量处理
+            applyBeanGreen();
+            // 若控制面板被前端框架移除，重新创建
+            if (!document.getElementById('bean-green-panel-content') || !document.getElementById('bean-green-quick-btn')) {
+                // 延迟一点以等待前端渲染结束
+                setTimeout(() => {
+                    try {
+                        createControlPanel();
+                    } catch (e) { /* 忽略 */ }
+                }, 50);
+            }
+            // 在路由/内容变更后短延迟检测并修复
+            setTimeout(() => { try { checkAndRepair(); } catch (e) {} }, 400);
+        } catch (e) {
+            console.warn('[豆沙绿] 处理 URL 变更时出错', e);
+        }
+    }
+
+    // 劫持 history.pushState / replaceState
+    (function () {
+        const _push = history.pushState;
+        const _replace = history.replaceState;
+
+        history.pushState = function () {
+            const res = _push.apply(this, arguments);
+            handleUrlChange();
+            return res;
+        };
+
+        history.replaceState = function () {
+            const res = _replace.apply(this, arguments);
+            handleUrlChange();
+            return res;
+        };
+
+        window.addEventListener('popstate', () => handleUrlChange());
+    })();
 示例2：
 {
     "selector": "video, .player",
@@ -2104,7 +2213,8 @@ return div.offsetWidth > 1000;`,
             box-shadow: 0 2px 8px rgba(0,0,0,0.3);
         `;
             tooltip.textContent = excluded ? `🚫 ${reason}` : '✅ 应用豆沙绿';
-            document.body.appendChild(tooltip);
+            const hostParent = document.documentElement || document.body;
+            hostParent.appendChild(tooltip);
         }
     }
 
@@ -2113,6 +2223,65 @@ return div.offsetWidth > 1000;`,
         document.querySelectorAll('.bean-green-debug-tooltip').forEach(el => {
             el.remove();
         });
+    }
+
+    // ==================== 自动检测并修复丢失的应用效果 ====================
+    function parseRGBA(str) {
+        if (!str) return null;
+        const m = /rgba?\(([^)]+)\)/.exec(str);
+        if (!m) return null;
+        const parts = m[1].split(',').map(s => parseFloat(s.trim()));
+        return parts; // [r,g,b] or [r,g,b,a]
+    }
+
+    function colorMatches(computed, expected) {
+        const a = parseRGBA(computed);
+        const b = parseRGBA(expected);
+        if (!a || !b) return false;
+        for (let i = 0; i < 3; i++) {
+            if (Math.abs((a[i]||0) - (b[i]||0)) > 8) return false;
+        }
+        return true;
+    }
+
+    function isEffectPresent() {
+        try {
+            const bgColor = localStorage.getItem(COLOR_STORAGE_KEY) || BEAN_GREEN;
+            const nodes = Array.from(document.querySelectorAll(`div:not(.${CLASS_PANEL})`));
+            if (nodes.length === 0) return false;
+            let match = 0;
+            let checked = 0;
+            for (const n of nodes) {
+                try {
+                    const cs = window.getComputedStyle(n).backgroundColor;
+                    checked++;
+                    if (colorMatches(cs, bgColor) || (n.getAttribute && (n.getAttribute('style')||'').includes('background-color'))) {
+                        match++;
+                    }
+                    if (checked >= 60) break;
+                } catch (e) {}
+            }
+            return checked>0 && (match/checked) >= 0.03;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function checkAndRepair() {
+        try {
+            if (!document.getElementById('bean-green-style')) {
+                console.warn('[豆沙绿] 样式丢失，重新注入');
+                injectStyle();
+                applyBeanGreen();
+                return;
+            }
+            if (!isEffectPresent()) {
+                console.warn('[豆沙绿] 检测到效果丢失，自动重新应用颜色');
+                applyBeanGreen();
+            }
+        } catch (e) {
+            console.error('[豆沙绿] checkAndRepair 错误', e);
+        }
     }
 
     // ==================== 初始化 ====================
