@@ -341,7 +341,7 @@
             reason: '导航栏（含子元素）'
         },
         {
-            className: 'modal dialog popup overlay',
+            className: 'modal dialog popup overlay cos-image-content _around-mask_14uts_14 cos-image',
             excludeChildren: true,
             reason: '模态框（含子元素）'
         },
@@ -513,6 +513,14 @@
                     // console.log(8)
                 }
                 return isSmallInteractive;
+            },
+            excludeChildren: true,
+            reason: '滑块/轮播图'
+        },
+        // 示例9：排除空白元素
+        {
+            customCheck: (div) => {
+                return div.getHTML()=='';
             },
             excludeChildren: true,
             reason: '滑块/轮播图'
