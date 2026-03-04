@@ -772,7 +772,7 @@
         // 获取用户自定义颜色，如果没有则使用默认豆沙绿
         const bgColor = localStorage.getItem('bean_green_color') || BEAN_GREEN;
 
-        style.textContent = `
+                style.textContent = `
                 /* 控制面板及其内部元素保持原样 */
                 .bean-green-panel,
                 .bean-green-panel * {
@@ -795,7 +795,7 @@
                 .bean-green-excluded {
                      background-color: initial !important;
                 }
-    `;
+        `;
 
         if (document.head) {
             document.head.appendChild(style);
@@ -998,7 +998,7 @@
 
         panel.innerHTML = `
 <div class="${CLASS_PANEL} bean-green-exclude-children" id="bean-green-panel-content"
-     style="position: fixed; top: 10px; right: 10px; z-index: 999999; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); font-family: Arial, sans-serif; min-width: 320px; max-width: 400px; max-height: 80vh; overflow-y: auto; display: none;">
+     style="position: fixed; top: 10px; right: 10px; z-index: 999999; background: rgba(199, 237, 204, 1); padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); font-family: Arial, sans-serif; min-width: 320px; max-width: 400px; max-height: 80vh; overflow-y: auto; display: none;">
   <div class="bean-green-excluded" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid block; padding-bottom: 10px;background-color: white;">
     <h3 style="margin: 0; font-size: 16px; color: #333;">🌿 豆沙绿控制面板</h3>
     <button id="btn-close-panel" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #999;">
