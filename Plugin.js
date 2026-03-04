@@ -341,7 +341,7 @@
             reason: '导航栏（含子元素）'
         },
         {
-            className: 'modal dialog popup overlay cos-image-content _around-mask_14uts_14 cos-image',
+            className: 'modal dialog popup overlay cos-image-content _around-mask_14uts_14 cos-image bmc-widgets',
             excludeChildren: true,
             reason: '模态框（含子元素）'
         },
@@ -1935,7 +1935,7 @@
             // 重新应用排除/增量处理
             applyBeanGreen();
             // 若控制面板被前端框架移除，重新创建
-            if (!document.getElementById('bean-green-panel-content') || !document.getElementById('bean-green-quick-btn')) {
+            if (!document.getElementById("bean-green-panel-content") || !document.getElementById("bean-green-quick-btn")) {
                 // 延迟一点以等待前端渲染结束
                 setTimeout(() => {
                     try {
@@ -1946,7 +1946,7 @@
             // 在路由/内容变更后短延迟检测并修复
             setTimeout(() => { try { checkAndRepair(); } catch (e) {} }, 400);
         } catch (e) {
-            console.warn('[豆沙绿] 处理 URL 变更时出错', e);
+            console.warn("[豆沙绿] 处理 URL 变更时出错", e);
         }
     }
 
@@ -1967,7 +1967,7 @@
             return res;
         };
 
-        window.addEventListener('popstate', () => handleUrlChange());
+        window.addEventListener("popstate", () => handleUrlChange());
     })();
 示例2：
 {
