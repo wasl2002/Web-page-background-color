@@ -466,7 +466,7 @@
                 // zhihu
                 if (currentHost.includes('zhihu.com')) {
                   // console.log('zhihu.com',div.classList[0],div.classList[0].includes('css-'),div.classList,div)
-                    return div.classList.length==1&&(div.classList[0].includes('css-'));
+                    return div.classList.length==1&&div.classList[0]!='css-s8xum0'&&(div.classList[0].includes('css-'));
                 }
 
                 // console.log(5,div, currentHost)
@@ -953,6 +953,7 @@
             if (div.closest(`.${CLASS_EXCLUDE_CHILDREN}`)) {
                 if (!div.classList.contains(CLASS_EXCLUDED)) {
                     div.classList.add(CLASS_EXCLUDED);
+                    // console.log("已排除11:",div, rule, currentHost,computedStyle)
                 }
                 excludedCount++;
                 continue;
@@ -974,6 +975,7 @@
             if (isExcluded) {
                 if (!div.classList.contains(CLASS_EXCLUDED)) {
                     div.classList.add(CLASS_EXCLUDED);
+                    // console.log("已排除12:",div, rule, currentHost,computedStyle)
                 }
                 excludedCount++;
 
@@ -1082,6 +1084,7 @@
                 if (div.closest(`.${CLASS_EXCLUDE_CHILDREN}`)) {
                     if (!div.classList.contains(CLASS_EXCLUDED)) {
                         div.classList.add(CLASS_EXCLUDED);
+                        // console.log("已排除21:",div,  currentHost,)
                     }
                     excludedCount++;
                     continue;
@@ -1104,6 +1107,7 @@
                 if (isExcluded) {
                     if (!div.classList.contains(CLASS_EXCLUDED)) {
                         div.classList.add(CLASS_EXCLUDED);
+                        // console.log("已排除22:",div,  currentHost,computedStyle)
                     }
                     excludedCount++;
 
