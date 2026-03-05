@@ -50,8 +50,8 @@
 
             <!-- 代码编辑区域 -->
             <textarea
-                id="${id}"
-                placeholder="${placeholder}"
+                id='${id}'
+                placeholder='${placeholder}'
                 style="
                     flex: 1;
                     min-height: 200px;
@@ -64,6 +64,7 @@
                     outline: none;
                     background: #fafafa;
                     color: #333;
+                    width:100%;
                 "
                 spellcheck="false"
             >${initialCode}</textarea>
@@ -218,6 +219,12 @@
 
     const BTN_POSITION_KEY = 'bean_green_btn_position'; // 新增：按钮位置存储key
     const COLOR_STORAGE_KEY = 'bean_green_color'; // 新增：颜色存储key
+    const SUBSCRIPTIONS_STORAGE_KEY = 'bean_green_rule_subscriptions'; // 订阅地址存储key
+    const DEFAULT_SUBSCRIPTION_URL = 'https://raw.githubusercontent.com/wasl2002/Web-page-background-color/main/exclusionRule.js';
+    const SUBSCRIPTIONS_CACHE_KEY = 'bean_green_subscriptions_cache'; // 存放已拉取规则的本地缓存
+    const SUBSCRIPTION_INTERVAL_KEY = 'bean_green_subscription_interval'; // 定时获取间隔（ms）
+    const DEFAULT_SUBSCRIPTION_INTERVAL_MS = 24 * 60 * 60 * 1000; // 默认 24 小时
+    let subscriptionRefreshTimerId = null;
 
     // 先加载用户自定义黑名单，再做统一检查（避免时序不一致）
     loadCustomWebsiteBlacklist();
@@ -542,6 +549,228 @@
             exclusionRules = [...DEFAULT_EXCLUSION_RULES];
         }
     }
+
+    // 订阅规则相关：获取/保存订阅列表，拉取远程规则并合并到排除规则中
+    function getSubscriptions() {
+        try {
+            const saved = localStorage.getItem(SUBSCRIPTIONS_STORAGE_KEY);
+            let list = saved ? JSON.parse(saved) : [];
+            // 确保默认订阅存在
+            if (!list.includes(DEFAULT_SUBSCRIPTION_URL)) {
+                list.unshift(DEFAULT_SUBSCRIPTION_URL);
+            }
+            return list;
+        } catch (e) {
+            return [DEFAULT_SUBSCRIPTION_URL];
+        }
+    }
+
+    function saveSubscriptions(list) {
+        try {
+            localStorage.setItem(SUBSCRIPTIONS_STORAGE_KEY, JSON.stringify(list));
+        } catch (e) {
+            console.error('[豆沙绿] 保存订阅失败', e);
+        }
+    }
+
+    // 尝试从远程文本中解析出规则数组，支持多种导出形式和常见 JS 语法（单引号、注释、尾随逗号等）
+    function parseRulesFromText(text) {
+        if (!text || typeof text !== 'string') return null;
+
+        // 先去掉 BOM
+        let t = text.replace(/^\uFEFF/, '');
+
+        // 删除注释（简单处理）
+        try {
+            t = t.replace(/\/\*[\s\S]*?\*\//g, ''); // /* */
+            t = t.replace(/(^|\s)\/\/.*$/gm, ''); // // 行注释
+        } catch (e) { /* ignore */ }
+
+        const tryEval = (code) => {
+            try {
+                // 包裹在小括号中以保证字面量正确解析
+                const fn = new Function('return (' + code + ')');
+                const res = fn();
+                if (Array.isArray(res)) return res;
+                if (res && typeof res === 'object') return [res];
+            } catch (e) {
+                // ignore
+            }
+            return null;
+        };
+
+        const trimmed = t.trim();
+
+        // 直接是数组或对象字面量
+        if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+            const r = tryEval(trimmed);
+            if (r) return r;
+        }
+
+        // 常见导出或赋值形式，尝试用正则提取第一个数组或对象字面量
+        const patterns = [
+            /DEFAULT_EXCLUSION_RULES\s*=\s*(\[[\s\S]*?\])/m,
+            /module\.exports\s*=\s*(\[[\s\S]*?\])/m,
+            /export\s+default\s*(\[[\s\S]*?\])/m,
+            /(\[[\s\S]*?\])/m,
+            /(\{[\s\S]*?\})/m
+        ];
+
+        for (const re of patterns) {
+            const m = re.exec(t);
+            if (m && m[1]) {
+                const candidate = m[1];
+                const r = tryEval(candidate);
+                if (r) return r;
+            }
+        }
+
+        // 最后尝试将简单的单引号字符串和尾随逗号转换为 JSON 风格再解析（更健壮）
+        try {
+            let jsonLike = t;
+            // 移除尾随逗号
+            jsonLike = jsonLike.replace(/,\s*(}|\])/g, '$1');
+            // 将单引号字符串换成双引号（简单处理）
+            jsonLike = jsonLike.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, '"$1"');
+            // 为未加引号的属性名加上双引号： { key: -> { "key":
+            jsonLike = jsonLike.replace(/([,{]\s*)([a-zA-Z0-9_\$\-]+)\s*:/g, '$1"$2":');
+            // 尝试找到第一个数组字面量再 JSON.parse
+            const m2 = /(\[[\s\S]*?\])/m.exec(jsonLike);
+            if (m2 && m2[1]) {
+                try {
+                    return JSON.parse(m2[1]);
+                } catch (e) {
+                    console.warn('[豆沙绿] JSON-like 解析失败，候选字符串：', m2[1].slice(0, 200));
+                }
+            }
+        } catch (e) {
+            // ignore
+        }
+
+        console.warn('[豆沙绿] 解析远程规则失败（无法识别格式）');
+        return null;
+    }
+
+    async function fetchRulesFromUrl(url, timeout = 8000) {
+        try {
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const id = controller ? setTimeout(() => controller.abort(), timeout) : null;
+            const res = await fetch(url, { cache: 'no-store', signal: controller ? controller.signal : undefined });
+            if (id) clearTimeout(id);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const text = await res.text();
+            const parsed = parseRulesFromText(text);
+            if (Array.isArray(parsed)) return parsed;
+            return null;
+        } catch (e) {
+            console.warn('[豆沙绿] 拉取订阅规则失败:', url, e && e.message);
+            return null;
+        }
+    }
+
+    async function loadSubscribedRules() {
+        const subs = getSubscriptions();
+        const remoteRules = [];
+
+        // 加载本地缓存
+        let cacheMap = {};
+        try {
+            cacheMap = JSON.parse(localStorage.getItem(SUBSCRIPTIONS_CACHE_KEY) || '{}');
+        } catch (e) { cacheMap = {}; }
+
+        const now = Date.now();
+        const interval = parseInt(localStorage.getItem(SUBSCRIPTION_INTERVAL_KEY) || DEFAULT_SUBSCRIPTION_INTERVAL_MS, 10);
+
+        // 先使用缓存（如果存在），并记录哪些需要后台刷新
+        const toRefresh = [];
+        for (const url of subs) {
+            if (!url) continue;
+            const entry = cacheMap[url];
+            if (entry && Array.isArray(entry.rules)) {
+                // 判断是否过期
+                const age = now - (entry.fetchedAt || 0);
+                if (age <= interval) {
+                    remoteRules.push(...entry.rules);
+                    console.log('[豆沙绿] 使用缓存规则:', url, '->', entry.rules.length, '条, age:', Math.round(age/1000), 's');
+                    continue; // 不需要即时刷新
+                }
+                // 已过期，但仍先使用旧缓存，后台刷新
+                remoteRules.push(...entry.rules);
+                toRefresh.push(url);
+                console.log('[豆沙绿] 缓存已过期，后台刷新:', url);
+            } else {
+                // 无缓存，立即尝试拉取并合并
+                toRefresh.push(url);
+            }
+        }
+
+        // 合并规则（使用内置 -> 缓存/旧数据 -> 自定义），尽快生效
+        try {
+            const savedRules = localStorage.getItem(STORAGE_KEY);
+            const customRules = savedRules ? JSON.parse(savedRules) : [];
+            exclusionRules = [...DEFAULT_EXCLUSION_RULES, ...remoteRules, ...customRules];
+            console.log('[豆沙绿] 合并后排除规则总数:', exclusionRules.length);
+            try { applyBeanGreen(); } catch (e) {}
+        } catch (e) {
+            console.warn('[豆沙绿] 合并订阅规则失败', e);
+        }
+
+        // 后台刷新需要更新的订阅
+        if (toRefresh.length > 0) {
+            (async () => {
+                let updated = false;
+                for (const url of toRefresh) {
+                    try {
+                        const arr = await fetchRulesFromUrl(url);
+                        if (Array.isArray(arr)) {
+                            cacheMap[url] = { rules: arr, fetchedAt: Date.now() };
+                            console.log('[豆沙绿] 后台已加载订阅规则:', url, '->', arr.length, '条');
+                            updated = true;
+                        }
+                    } catch (e) {
+                        console.warn('[豆沙绿] 后台拉取订阅失败:', url, e && e.message);
+                    }
+                }
+                try { localStorage.setItem(SUBSCRIPTIONS_CACHE_KEY, JSON.stringify(cacheMap)); } catch (e) {}
+                if (updated) {
+                    // 若有更新则重新合并并应用
+                    try {
+                        const savedRules = localStorage.getItem(STORAGE_KEY);
+                        const customRules = savedRules ? JSON.parse(savedRules) : [];
+                        const mergedRemote = [];
+                        for (const u of subs) {
+                            const e = cacheMap[u];
+                            if (e && Array.isArray(e.rules)) mergedRemote.push(...e.rules);
+                        }
+                        exclusionRules = [...DEFAULT_EXCLUSION_RULES, ...mergedRemote, ...customRules];
+                        console.log('[豆沙绿] 后台刷新后合并排除规则总数:', exclusionRules.length);
+                        try { applyBeanGreen(); } catch (e) {}
+                    } catch (e) { console.warn('[豆沙绿] 后台合并规则失败', e); }
+                }
+            })();
+        }
+    }
+
+    // 初始化：先加载本地自定义规则，再异步拉取并合并订阅规则
+    try {
+        loadCustomRules();
+        // 异步拉取订阅（不阻塞启动）
+        loadSubscribedRules();
+    } catch (e) {
+        console.warn('[豆沙绿] 初始化订阅规则失败', e);
+    }
+    // 定时刷新订阅（在后台定期拉取并更新缓存），间隔可由用户设置
+    try {
+        const interval = parseInt(localStorage.getItem(SUBSCRIPTION_INTERVAL_KEY) || DEFAULT_SUBSCRIPTION_INTERVAL_MS, 10);
+        // 最小间隔 1 小时，避免刷太频繁
+        const safeInterval = Math.max(interval, 1 * 60 * 60 * 1000);
+        if (subscriptionRefreshTimerId) clearInterval(subscriptionRefreshTimerId);
+        subscriptionRefreshTimerId = setInterval(() => {
+            try {
+                loadSubscribedRules();
+            } catch (e) { console.warn('[豆沙绿] 定时刷新订阅失败', e); }
+        }, safeInterval);
+    } catch (e) { /* ignore */ }
 
     function saveCustomRules(rules) {
         try {
@@ -1006,7 +1235,7 @@
 
         panel.innerHTML = `
 <div class="${CLASS_PANEL} bean-green-exclude-children" id="bean-green-panel-content"
-     style="position: fixed; top: 10px; right: 10px; z-index: 999999; background: rgba(199, 237, 204, 1); padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); font-family: Arial, sans-serif; min-width: 320px; max-width: 400px; max-height: 80vh; overflow-y: auto; display: none;">
+     style="position: fixed; top: 10px; right: 10px; z-index: 998; background: rgba(199, 237, 204, 1); padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); font-family: Arial, sans-serif; min-width: 320px; max-width: 400px; max-height: 80vh; overflow-y: auto; display: none;">
   <div class="bean-green-excluded" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid block; padding-bottom: 10px;background-color: white;">
     <h3 style="margin: 0; font-size: 16px; color: #333;">🌿 豆沙绿控制面板</h3>
     <button id="btn-close-panel" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #999;">
@@ -1044,6 +1273,10 @@
             style="width: 100%; padding: 10px; margin-top: 5px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">
       📋 管理黑名单
     </button>
+        <button id="btn-manage-subscriptions"
+                        style="width: 100%; padding: 10px; margin-top: 5px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 6px;">
+            🔗 管理订阅
+        </button>
   </div>
   <div class="bean-green-exclude-children" style="margin-bottom: 15px;">
     <div class="bean-green-excluded" style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #333;">🎨
@@ -1104,7 +1337,7 @@
 </div>`;
         const hostParent = document.documentElement || document.body;
         // 强制重置面板外层样式，避免站点样式干扰（行距、字体、继承等）
-        try { panel.style.cssText = 'all: initial; box-sizing: border-box; position: fixed; top: 10px; right: 10px; z-index: 2147483647;'; } catch (e) {}
+        try { panel.style.cssText = 'all: initial; box-sizing: border-box; position: fixed; top: 10px; right: 10px; z-index: 998;'; } catch (e) {}
         hostParent.appendChild(panel);
 
         const quickBtn = document.createElement('div');
@@ -1187,6 +1420,9 @@
         document.getElementById('btn-manage-rules').addEventListener('click', showRulesManager);
         document.getElementById('btn-add-website').addEventListener('click', addCurrentWebsiteToBlacklist);
         document.getElementById('btn-manage-websites').addEventListener('click', showWebsiteBlacklistManager);
+        // 管理订阅
+        const subBtn = document.getElementById('btn-manage-subscriptions');
+        if (subBtn) subBtn.addEventListener('click', showSubscriptionsManager);
         document.getElementById('btn-toggle-debug').addEventListener('click', toggleDebugMode);
         document.getElementById('btn-clear-all').addEventListener('click', clearAllCustomData);
 
@@ -1510,6 +1746,165 @@
         });
 
         bindRuleButtons();
+    }
+
+    // 订阅管理器
+    function showSubscriptionsManager() {
+        const subs = getSubscriptions();
+
+        const modal = document.createElement('div');
+        modal.className = CLASS_PANEL;
+        modal.innerHTML = `
+            <div class="${CLASS_PANEL}" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999999; display: flex; align-items: center; justify-content: center;">
+                <div class="${CLASS_PANEL}" style="background: white; padding: 20px; border-radius: 12px; max-width: 720px; width: 90%; max-height: 80vh; overflow-y: auto; font-family: Arial, sans-serif;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #C7EDCC; padding-bottom: 10px;background-color: white;">
+                        <h3 style="margin: 0; font-size: 16px;">🔗 订阅管理</h3>
+                        <button class="btn-close-modal" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #999;">✖</button>
+                    </div>
+
+                    <div style="margin-bottom: 12px; font-size:12px; color:#666;">可添加任意可访问的 JS/JSON 格式规则地址，程序会尝试解析数组字面量或常见的导出语法。</div>
+
+                    <div id="subscriptions-list" style="margin-bottom: 12px;">` + renderSubscriptionsList(subs) + `</div>
+
+                    <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
+                        <button id="btn-add-subscription" style="flex:1; padding:10px; cursor:pointer; border:1px solid #4ecdc4; background:white; color:#4ecdc4; border-radius:6px;">➕ 添加订阅</button>
+                        <button id="btn-refresh-subscriptions" style="flex:1; padding:10px; cursor:pointer; border:1px solid #C7EDCC; background:#C7EDCC; color:#333; border-radius:6px;">🔄 拉取并应用</button>
+                        <button class="btn-close-modal" style="flex:1; padding:10px; cursor:pointer; border:1px solid #ddd; background:white; border-radius:6px;">关闭</button>
+                    </div>
+
+                    <div style="margin-top:12px; padding:10px; background:#f8f9fa; border-radius:6px;">
+                        <div style="font-size:13px; font-weight:bold; margin-bottom:6px;">订阅设置</div>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <label style="font-size:12px; color:#666; white-space:nowrap;">刷新间隔（小时）：</label>
+                            <input id="subscription-interval-hours" type="number" min="1" step="1" value="` + Math.max(1, Math.round((parseInt(localStorage.getItem(SUBSCRIPTION_INTERVAL_KEY) || DEFAULT_SUBSCRIPTION_INTERVAL_MS,10) || DEFAULT_SUBSCRIPTION_INTERVAL_MS) / (60*60*1000))) + `" style="width:80px; padding:6px; border:1px solid #ddd; border-radius:4px;">
+                            <button id="btn-set-sub-interval" style="padding:6px 10px; cursor:pointer; border:1px solid #4ecdc4; background:white; color:#4ecdc4; border-radius:4px;">保存</button>
+                            <button id="btn-clear-sub-cache" style="padding:6px 10px; cursor:pointer; border:1px solid #ff6b6b; background:white; color:#ff6b6b; border-radius:4px;">清空缓存</button>
+                        </div>
+                        <div style="font-size:11px; color:#999; margin-top:6px;">说明：更改后会立即生效并触发一次后台拉取（最小间隔 1 小时）。</div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        modal.querySelectorAll('.btn-close-modal').forEach(btn => btn.addEventListener('click', () => modal.remove()));
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.remove();
+        });
+
+        document.getElementById('btn-add-subscription').addEventListener('click', async () => {
+            const url = prompt('请输入订阅地址（完整 URL）：');
+            if (!url) return;
+            const list = getSubscriptions();
+            if (list.includes(url)) {
+                alert('该地址已在订阅列表中');
+                return;
+            }
+            list.push(url);
+            saveSubscriptions(list);
+            document.getElementById('subscriptions-list').innerHTML = renderSubscriptionsList(list);
+            bindSubscriptionButtons(modal);
+        });
+
+        document.getElementById('btn-refresh-subscriptions').addEventListener('click', async () => {
+            try {
+                await loadSubscribedRules();
+                alert('✅ 已拉取并应用订阅规则');
+            } catch (e) {
+                alert('❌ 拉取订阅失败');
+            }
+        });
+
+        // 订阅设置：保存间隔 & 清空缓存
+        bindSubscriptionButtons(modal);
+
+        const setBtn = modal.querySelector('#btn-set-sub-interval');
+        const hoursInput = modal.querySelector('#subscription-interval-hours');
+        const clearCacheBtn = modal.querySelector('#btn-clear-sub-cache');
+
+        if (setBtn && hoursInput) {
+            setBtn.addEventListener('click', () => {
+                const hours = parseInt(hoursInput.value, 10);
+                if (!hours || hours < 1) return alert('请输入 >=1 的整数小时');
+                const ms = hours * 60 * 60 * 1000;
+                localStorage.setItem(SUBSCRIPTION_INTERVAL_KEY, String(ms));
+                // 重置定时器
+                try { if (subscriptionRefreshTimerId) clearInterval(subscriptionRefreshTimerId); } catch (e) {}
+                const safeInterval = Math.max(ms, 1 * 60 * 60 * 1000);
+                subscriptionRefreshTimerId = setInterval(() => {
+                    try { loadSubscribedRules(); } catch (e) { console.warn('[豆沙绿] 定时刷新订阅失败', e); }
+                }, safeInterval);
+                // 立即后台刷新一次
+                loadSubscribedRules();
+                alert('✅ 已保存间隔并触发一次刷新');
+            });
+        }
+
+        if (clearCacheBtn) {
+            clearCacheBtn.addEventListener('click', () => {
+                if (!confirm('确定清空订阅缓存吗？清空后将重新从网络拉取规则。')) return;
+                try { localStorage.removeItem(SUBSCRIPTIONS_CACHE_KEY); } catch (e) {}
+                alert('✅ 已清空订阅缓存');
+            });
+        }
+    }
+
+    function renderSubscriptionsList(list) {
+        if (!list || list.length === 0) return '<div style="color:#999; padding:10px;">暂无订阅</div>';
+        let html = '';
+        list.forEach((url, idx) => {
+            html += `<div style="display:flex; gap:8px; align-items:center; padding:8px; border-radius:6px; background:#f8f9fa; margin-bottom:8px;">
+                <div style="flex:1; word-break:break-all; font-size:12px; color:#333;">${url}</div>
+                <div style="display:flex; gap:6px;">
+                    <button class="btn-test-sub" data-idx="${idx}" style="padding:6px 8px; cursor:pointer; border:1px solid #ddd; background:white; border-radius:4px;">🧪 测试</button>
+                    <button class="btn-delete-sub" data-idx="${idx}" style="padding:6px 8px; cursor:pointer; border:1px solid #ff6b6b; background:white; color:#ff6b6b; border-radius:4px;">删除</button>
+                </div>
+            </div>`;
+        });
+        return html;
+    }
+
+    function bindSubscriptionButtons(modalRoot) {
+        const root = modalRoot || document;
+        root.querySelectorAll('.btn-delete-sub').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const idx = parseInt(btn.dataset.idx, 10);
+                const list = getSubscriptions();
+                if (idx >= 0 && idx < list.length) {
+                    if (!confirm('确定删除此订阅？')) return;
+                    list.splice(idx, 1);
+                    saveSubscriptions(list);
+                    const container = root.querySelector('#subscriptions-list');
+                    if (container) container.innerHTML = renderSubscriptionsList(list);
+                    bindSubscriptionButtons(root);
+                }
+            });
+        });
+
+        root.querySelectorAll('.btn-test-sub').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const idx = parseInt(btn.dataset.idx, 10);
+                const list = getSubscriptions();
+                const url = list[idx];
+                if (!url) return alert('地址无效');
+                btn.disabled = true;
+                btn.textContent = '⏳ 测试中';
+                try {
+                    const arr = await fetchRulesFromUrl(url);
+                    if (Array.isArray(arr)) {
+                        alert('✅ 测试成功，解析到 ' + arr.length + ' 条规则');
+                    } else {
+                        alert('⚠️ 测试未解析到规则，请确认地址返回内容格式');
+                    }
+                } catch (e) {
+                    alert('❌ 测试失败');
+                }
+                btn.disabled = false;
+                btn.textContent = '🧪 测试';
+            });
+        });
     }
 
     function renderRulesList(customRules) {

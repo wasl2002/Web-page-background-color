@@ -370,14 +370,54 @@ location.reload();
 
 ### Q1: 为什么某些网站没有效果？
 
-**可能原因：**
+
+这是一个轻量的 userscript（例如配合 Tampermonkey/Violentmonkey 使用），用于将页面元素的背景统一替换为“豆沙绿”等缓和色以降低视觉刺激。
+
+**快速开始**
+- 安装：将 `Plugin.js` 作为 userscript 安装到你的浏览器扩展（Tampermonkey/Violentmonkey/Greasemonkey）。
+- 打开任意网页，页面右上角会出现一个悬浮按钮，点击可打开控制面板进行配置。
+
+**主要功能**
+- 全页面 div/header 背景替换为可配置的颜色（默认：豆沙绿）。
+- 内置并可编辑的排除规则（`DEFAULT_EXCLUSION_RULES`），避免修改关键交互或媒体区域。
+- 支持自定义规则（JSON 或自定义函数形式），并可保存到本地。
+- 增量观察 DOM（MutationObserver）与 SPA（history push/replace/popstate）支持，导航或局部更新后会尝试自动恢复样式和控制面板。
+- UI 隔离：控制面板和快捷按钮挂载到 `document.documentElement` 并使用样式重置，避免被站点样式覆盖。
+
+**订阅在线排除规则（新功能）**
+- 默认订阅地址：
+    - https://raw.githubusercontent.com/wasl2002/Web-page-background-color/main/exclusionRule.js
+- 功能说明：可以订阅远程规则仓库，程序会尝试解析常见的 JS/JSON 导出格式并将规则合并到本地排除规则中。
+- 缓存与刷新策略：
+    - 已拉取的订阅规则会缓存在本地（localStorage），缓存键为 `bean_green_subscriptions_cache`。
+    - 程序启动时优先使用缓存（若未过期），对于过期或未缓存的订阅会在后台异步刷新并更新缓存与规则集合。
+    - 默认刷新间隔为 24 小时（可通过 localStorage 键 `bean_green_subscription_interval` 自定义，最小允许间隔为 1 小时）。
+- 在控制面板中选择 “管理订阅” 可添加/删除订阅地址、手动拉取并测试解析结果。
+
+**存储键一览（localStorage）**
+- `bean_green_color`：当前使用的 RGBA 颜色字符串。
+- `bean_green_exclusion_rules`：用户自定义排除规则数组（JSON）。
+- `bean_green_website_blacklist`：用户自定义网站黑名单数组（JSON）。
+- `bean_green_rule_subscriptions`：订阅地址列表（JSON）。
+- `bean_green_subscriptions_cache`：订阅内容缓存（JSON，按 URL 存储规则数组与抓取时间）。
+- `bean_green_subscription_interval`：订阅自动刷新间隔（毫秒）。
+- `bean_green_btn_position`：快捷按钮位置（JSON）。
+
+**调试与故障排查**
+- 当你在某些站点发现结果元素被隐藏（例如被设置为 `display:none`），脚本会尝试移除该元素的内联 `display` 并恢复可见。
+- 如果订阅解析失败，可以在“管理订阅”中使用“测试”功能查看解析结果；若仍失败，请把远程 URL 的原始响应内容粘出来，脚本会尝试兼容更多格式。
+
+**文件与代码位置**
+- 主脚本：`Plugin.js`（所有逻辑和 UI 均在该文件中实现）
+
+**贡献**
+- 欢迎提交 issue 与 PR，尤其是为更多站点补充更精确的排除规则或改进解析与缓存策略。
+
+---
+更新：已增加订阅、缓存与定时刷新功能，以及更健壮的远程规则解析。若需我把“订阅刷新间隔设置”加入面板 UI，我可以继续实现。
 1. ✅ 该网站在黑名单中
 2. ✅ 该网站使用了 iframe 嵌入内容
 3. ✅ 该网站的样式优先级更高
-4. ✅ 脚本尚未完全加载
-
-**解决方法：**
-- 检查网站是否在黑名单中
 - 等待页面完全加载
 - 刷新页面重试
 
