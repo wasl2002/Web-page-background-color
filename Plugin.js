@@ -466,14 +466,14 @@
                 // zhihu
                 if (currentHost.includes('zhihu.com')) {
                   // console.log('zhihu.com',div.classList[0],div.classList[0].includes('css-'),div.classList,div)
-                    return div.classList.length==1&&div.classList[0]!='css-0'&&div.classList[0]!='css-s8xum0'&&div.classList[0].includes('css-');
+                    return (div.classList.length==2&&div.classList[0]=='Modal-content')||(div.classList[0].includes('RichText-ConditionalImagePortal'));
                 }
 
                 // console.log(5,div, currentHost)
                 return false;
             },
             excludeChildren: true,
-            reason: '特定网站播放器'
+            reason: '特定网站特殊元素'
         },
 
         // 示例6：排除下拉菜单
