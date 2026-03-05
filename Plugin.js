@@ -334,6 +334,19 @@
         return style.position === 'fixed' && (parseInt(style.zIndex) || 0) >= minZIndex;
     }
 
+
+  	/**
+     * @param {HTMLElement} element 要检测的DOM元素
+     * @param {string} pattern 通配符模式，支持*匹配任意字符
+     * @return {boolean} 是否匹配成功
+     */
+    function matchClassWithWildcard(element, pattern) {
+    // 把*替换成正则任意匹配规则，同时转义其他正则特殊字符
+    const regexPattern = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+    const regex = new RegExp(`^${regexPattern}$`);
+    // 遍历所有类名，判断是否有匹配的
+    return Array.from(element.classList).some(cls => regex.test(cls));
+    }
     // ==================== 默认排除规则 ====================
     const DEFAULT_EXCLUSION_RULES = [
         {
@@ -417,7 +430,7 @@
                 return isSmallInteractive;
             },
             excludeChildren: true,
-            reason: '可交互元素'
+            reason: '.bean-green-excluded'
         },
 
         // 示例3：排除动画元素
@@ -826,7 +839,10 @@
             const classNames = rule.className || rule.class;
             const classes = classNames.split(/\s+/);
             for (const cls of classes) {
-                if (div.classList.contains(cls)) {
+                // if (div.classList.contains(cls)) {
+                //     return true;
+                // }
+              if (matchClassWithWildcard(div,cls)) {
                     return true;
                 }
             }
@@ -953,7 +969,7 @@
             if (div.closest(`.${CLASS_EXCLUDE_CHILDREN}`)) {
                 if (!div.classList.contains(CLASS_EXCLUDED)) {
                     div.classList.add(CLASS_EXCLUDED);
-                    console.log("已排除11:",div, rule, currentHost,computedStyle)
+                    // console.log("已排除11:",div, rule, currentHost,computedStyle)
                 }
                 excludedCount++;
                 continue;
@@ -967,7 +983,7 @@
                 if (checkRule(div, rule, currentHost, computedStyle)) {
                     isExcluded = true;
                     matchedRule = rule;
-                    console.log("已排除1:",div, rule, currentHost,computedStyle)
+                    // console.log("已排除1:",div, rule, currentHost,computedStyle)
                     break;
                 }
             }
@@ -975,7 +991,7 @@
             if (isExcluded) {
                 if (!div.classList.contains(CLASS_EXCLUDED)) {
                     div.classList.add(CLASS_EXCLUDED);
-                    console.log("已排除12:",div, rule, currentHost,computedStyle)
+                    // console.log("已排除12:",div, rule, currentHost,computedStyle)
                 }
                 excludedCount++;
 
@@ -1032,7 +1048,7 @@
 
                 /* 确保排除元素本身也恢复初始样式 */
                 .bean-green-excluded {
-                     background-color: initial !important;
+                   /*  background-color: initial !important;*/
                 }
         `;
 
@@ -1084,7 +1100,7 @@
                 if (div.closest(`.${CLASS_EXCLUDE_CHILDREN}`)) {
                     if (!div.classList.contains(CLASS_EXCLUDED)) {
                         div.classList.add(CLASS_EXCLUDED);
-                        console.log("已排除21:",div,  currentHost,div.closest(`.${CLASS_EXCLUDE_CHILDREN}`))
+                        // console.log("已排除21:",div,  currentHost,div.closest(`.${CLASS_EXCLUDE_CHILDREN}`))
                     }
                     excludedCount++;
                     continue;
@@ -1099,7 +1115,7 @@
                     if (checkRule(div, rule, currentHost, computedStyle)) {
                         isExcluded = true;
                         matchedRule = rule;
-                        console.log("已排除2:",div, rule, currentHost,computedStyle)
+                        // console.log("已排除2:",div, rule, currentHost,computedStyle)
                         break;
                     }
                 }
@@ -1107,7 +1123,7 @@
                 if (isExcluded) {
                     if (!div.classList.contains(CLASS_EXCLUDED)) {
                         div.classList.add(CLASS_EXCLUDED);
-                        console.log("已排除22:",div,  currentHost,computedStyle)
+                        // console.log("已排除22:",div,  currentHost,computedStyle)
                     }
                     excludedCount++;
 
@@ -2598,7 +2614,7 @@ return div.offsetWidth > 1000;`,
                     if (checkRule(div, rule, window.location.hostname)) {
                         excluded = true;
                         reason = rule.reason;
-                        console.log("已排除3:",div, rule, window.location.hostname)
+                        // console.log("已排除3:",div, rule, window.location.hostname)
                         break;
                     }
                 }
