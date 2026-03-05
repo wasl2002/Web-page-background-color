@@ -466,7 +466,7 @@
                 // zhihu
                 if (currentHost.includes('zhihu.com')) {
                   // console.log('zhihu.com',div.classList[0],div.classList[0].includes('css-'),div.classList,div)
-                    return div.classList.length==1&&div.classList[0]!='css-s8xum0'&&(div.classList[0].includes('css-'));
+                    return div.classList.length==1&&div.classList[0]!='css-0'&&div.classList[0]!='css-s8xum0'&&div.classList[0].includes('css-');
                 }
 
                 // console.log(5,div, currentHost)
@@ -953,7 +953,7 @@
             if (div.closest(`.${CLASS_EXCLUDE_CHILDREN}`)) {
                 if (!div.classList.contains(CLASS_EXCLUDED)) {
                     div.classList.add(CLASS_EXCLUDED);
-                    // console.log("已排除11:",div, rule, currentHost,computedStyle)
+                    console.log("已排除11:",div, rule, currentHost,computedStyle)
                 }
                 excludedCount++;
                 continue;
@@ -967,7 +967,7 @@
                 if (checkRule(div, rule, currentHost, computedStyle)) {
                     isExcluded = true;
                     matchedRule = rule;
-                    // console.log("已排除1:",div, rule, currentHost,computedStyle)
+                    console.log("已排除1:",div, rule, currentHost,computedStyle)
                     break;
                 }
             }
@@ -975,7 +975,7 @@
             if (isExcluded) {
                 if (!div.classList.contains(CLASS_EXCLUDED)) {
                     div.classList.add(CLASS_EXCLUDED);
-                    // console.log("已排除12:",div, rule, currentHost,computedStyle)
+                    console.log("已排除12:",div, rule, currentHost,computedStyle)
                 }
                 excludedCount++;
 
@@ -1084,7 +1084,7 @@
                 if (div.closest(`.${CLASS_EXCLUDE_CHILDREN}`)) {
                     if (!div.classList.contains(CLASS_EXCLUDED)) {
                         div.classList.add(CLASS_EXCLUDED);
-                        // console.log("已排除21:",div,  currentHost,)
+                        console.log("已排除21:",div,  currentHost,div.closest(`.${CLASS_EXCLUDE_CHILDREN}`))
                     }
                     excludedCount++;
                     continue;
@@ -1099,7 +1099,7 @@
                     if (checkRule(div, rule, currentHost, computedStyle)) {
                         isExcluded = true;
                         matchedRule = rule;
-                        // console.log("已排除2:",div, rule, currentHost,computedStyle)
+                        console.log("已排除2:",div, rule, currentHost,computedStyle)
                         break;
                     }
                 }
@@ -1107,7 +1107,7 @@
                 if (isExcluded) {
                     if (!div.classList.contains(CLASS_EXCLUDED)) {
                         div.classList.add(CLASS_EXCLUDED);
-                        // console.log("已排除22:",div,  currentHost,computedStyle)
+                        console.log("已排除22:",div,  currentHost,computedStyle)
                     }
                     excludedCount++;
 
@@ -2598,7 +2598,7 @@ return div.offsetWidth > 1000;`,
                     if (checkRule(div, rule, window.location.hostname)) {
                         excluded = true;
                         reason = rule.reason;
-                        // console.log("已排除3:",div, rule, window.location.hostname)
+                        console.log("已排除3:",div, rule, window.location.hostname)
                         break;
                     }
                 }
